@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  # Dashboard web (Streamlit)
+  dashboard:
+    build: .
+    container_name: ict_dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./user_data:/app/user_data
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+
+  # Daemon scanner 24/7
+  daemon:
+    build: .
+    container_name: ict_daemon
+    command: ["python", "run_daemon.py", "--interval", "15"]
+    volumes:
+      - ./data:/app/data
+      - ./user_data:/app/user_data
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+    depends_on:
+      - dashboard

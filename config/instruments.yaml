@@ -1,0 +1,191 @@
+# ============================================================
+# INSTRUMENTS — Spécifications complètes pour sizing précis
+# ============================================================
+
+EURUSD:
+  symbol_yf: "EURUSD=X"
+  asset_class: "forex"
+  pip_value: 0.0001
+  contract_size: 100000                 # 1 lot standard
+  pip_value_per_lot_usd: 10.0           # $10 par pip par lot
+  min_lot: 0.01
+  max_spread_pips: 2.0                  # rejeter trade si spread > 2 pips
+  typical_spread_pips: 0.5
+  commission_per_lot_usd: 7.0           # FTMO commission round-turn
+  sessions:
+    - asia: "00:00-08:00"               # UTC
+    - london: "07:00-16:00"
+    - ny: "12:00-21:00"
+  killzones_utc:
+    london_kz: "07:00-10:00"
+    ny_am_kz: "12:30-15:00"
+    ny_pm_kz: "18:30-20:30"
+    london_open: "07:00-08:00"
+    ny_open: "13:30-14:30"
+  daily_atr_target_pips: 70             # ATR moyen daily (référence)
+  correlated_assets:
+    - DXY                               # inverse
+    - GBPUSD                            # positif
+    - US10Y                             # inverse
+
+NAS100:
+  symbol_yf: "^NDX"                     # Nasdaq 100 index
+  symbol_futures: "NQ=F"                # Futures
+  asset_class: "indices"
+  pip_value: 0.25                       # tick size NQ futures
+  contract_size: 20                     # $20 per point NQ full, $2 MNQ
+  pip_value_per_lot_usd: 20.0           # $20 per point (NQ full)
+  min_lot: 1                            # 1 contract
+  max_spread_points: 2.0
+  commission_per_lot_usd: 4.0
+  sessions:
+    - regular: "13:30-20:00"            # UTC, 9:30-16:00 ET
+    - extended: "22:00-12:59"           # globex
+  killzones_utc:
+    london_open: "07:00-08:00"
+    ny_pre_market: "12:00-13:30"
+    ny_am_kz: "13:30-15:30"
+    ny_lunch: "16:00-17:00"             # sweep de mid
+    ny_pm_kz: "18:30-20:00"
+  daily_atr_target_points: 300
+  correlated_assets:
+    - SPX500
+    - VIX                               # inverse
+    - US10Y                             # inverse
+
+XAUUSD:
+  symbol_yf: "GC=F"                     # gold futures
+  asset_class: "metals"
+  pip_value: 0.01
+  contract_size: 100                    # 100 oz
+  pip_value_per_lot_usd: 1.0            # $1 per $0.01 move per 1 lot (0.01)
+  # Actually for gold: 1 lot = 100 oz, 1 pip = $0.01 move = $1 profit per lot
+  # For $1 move per 1 lot (0.01 lot) = $0.10. Sizing handled carefully.
+  min_lot: 0.01
+  max_spread_points: 0.50               # $0.50
+  commission_per_lot_usd: 9.0
+  sessions:
+    - asia: "00:00-08:00"
+    - london: "07:00-16:00"
+    - ny: "12:00-21:00"
+  killzones_utc:
+    london_kz: "07:00-10:00"
+    ny_am_kz: "12:30-15:00"
+    ny_pm_kz: "18:30-20:30"
+  daily_atr_target_dollars: 25.0
+  correlated_assets:
+    - DXY                               # inverse
+    - US10Y                             # inverse
+    - SILVER                            # positif
+
+BTCUSD:
+  symbol_yf: "BTC-USD"
+  asset_class: "crypto"
+  pip_value: 1.0                        # $1 minimum
+  contract_size: 1                      # 1 BTC
+  pip_value_per_lot_usd: 1.0
+  min_lot: 0.01                         # 0.01 BTC
+  max_spread_points: 20.0
+  commission_pct: 0.0005                # 0.05%
+  sessions:
+    - always: "00:00-23:59"             # 24/7
+  killzones_utc:
+    asia_kz: "00:00-04:00"
+    london_kz: "07:00-10:00"
+    ny_am_kz: "13:00-15:00"
+    ny_pm_kz: "18:00-21:00"
+  daily_atr_target_dollars: 2000.0
+  correlated_assets:
+    - ETH                               # positif
+    - NAS100                            # positif (risk-on)
+    - DXY                               # inverse
+
+# ============================================================
+# EXTENSION — assets ajoutés pour max volume
+# ============================================================
+
+GBPUSD:
+  symbol_yf: "GBPUSD=X"
+  asset_class: "forex"
+  pip_value: 0.0001
+  contract_size: 100000
+  pip_value_per_lot_usd: 10.0
+  min_lot: 0.01
+  max_spread_pips: 2.5
+  commission_per_lot_usd: 7.0
+  daily_atr_target_pips: 80
+  killzones_utc:
+    london_kz: "07:00-10:00"
+    ny_am_kz: "12:30-15:00"
+
+USDJPY:
+  symbol_yf: "USDJPY=X"
+  asset_class: "forex"
+  pip_value: 0.01
+  contract_size: 100000
+  pip_value_per_lot_usd: 9.0
+  min_lot: 0.01
+  max_spread_pips: 2.0
+  commission_per_lot_usd: 7.0
+  daily_atr_target_pips: 90
+  killzones_utc:
+    asia_kz: "00:00-04:00"
+    london_kz: "07:00-10:00"
+    ny_am_kz: "12:30-15:00"
+
+AUDUSD:
+  symbol_yf: "AUDUSD=X"
+  asset_class: "forex"
+  pip_value: 0.0001
+  contract_size: 100000
+  pip_value_per_lot_usd: 10.0
+  min_lot: 0.01
+  commission_per_lot_usd: 7.0
+  daily_atr_target_pips: 60
+  killzones_utc:
+    asia_kz: "00:00-04:00"
+
+USDCAD:
+  symbol_yf: "USDCAD=X"
+  asset_class: "forex"
+  pip_value: 0.0001
+  contract_size: 100000
+  pip_value_per_lot_usd: 7.5
+  min_lot: 0.01
+  commission_per_lot_usd: 7.0
+
+SPX500:
+  symbol_yf: "^GSPC"
+  asset_class: "indices"
+  pip_value: 0.25
+  contract_size: 50
+  pip_value_per_lot_usd: 50.0
+  min_lot: 1
+  commission_per_lot_usd: 4.0
+
+DOW30:
+  symbol_yf: "^DJI"
+  asset_class: "indices"
+  pip_value: 1.0
+  contract_size: 5
+  pip_value_per_lot_usd: 5.0
+  min_lot: 1
+  commission_per_lot_usd: 4.0
+
+XAGUSD:
+  symbol_yf: "SI=F"
+  asset_class: "metals"
+  pip_value: 0.01
+  contract_size: 5000
+  pip_value_per_lot_usd: 50.0
+  min_lot: 0.01
+  commission_per_lot_usd: 9.0
+
+ETHUSD:
+  symbol_yf: "ETH-USD"
+  asset_class: "crypto"
+  pip_value: 0.01
+  contract_size: 1
+  pip_value_per_lot_usd: 1.0
+  min_lot: 0.01
+  commission_pct: 0.0005

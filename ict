@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""
+ict — CLI unifié du framework.
+
+Commandes :
+  ict setup              — installation complète (deps + data + ML)
+  ict dashboard          — site local (localhost + LAN, accessible phone Wi-Fi)
+  ict serve-public       — site PUBLIC via Cloudflare Tunnel (URL internet)
+  ict serve-ngrok        — site PUBLIC via ngrok (alternative)
+  ict scan               — scan one-shot CLI
+  ict daemon             — daemon live (scanner + alertes 24/7)
+  ict test               — test alertes Discord/Telegram
+  ict backtest <asset>   — backtest rapide
+  ict status             — health check
+  ict calendar           — affiche news à venir
+  ict install-autostart  — installe LaunchAgent macOS (auto-start au boot)
+  ict uninstall-autostart— retire le LaunchAgent
+"""
+import sys
+import os
+import subprocess
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+
+
+def cmd_setup():
+    """Installe tout ce qu'il faut."""
+    print("═══ SETUP — Installation complète ═══")
+    # 1. pip install
+    print("\n[1/4] Install Python dependencies...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet",
+                    "-r", str(ROOT / "requirements.txt")], check=False)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet",
+                    "streamlit"], check=False)
+    print("   ✓ Python deps installed")
+
+    # 2. Download data
+    print("\n[2/4] Download market data (Yahoo Finance)...")
+    subprocess.run([sys.executable, "-c", """
+import sys; sys.path.insert(0, '.')
+import warnings; warnings.filterwarnings('ignore')
+from src.data_engine import download_asset
+from src.utils.types import Timeframe
+from src.utils.config import list_instruments
+symbols = list_instruments()
+for sym in symbols:
+    for tf in [Timeframe.D1, Timeframe.H1]:
+        try:
+            df = download_asset(sym, tf, save=True)
+        except Exception as e:
+            print(f'  skip {sym} {tf.value}: {e}')
+"""], cwd=ROOT, check=False)
+    print("   ✓ Data ready")
+
+    # 3. Initialize user settings
+    print("\n[3/4] Initialize user settings...")
+    subprocess.run([sys.executable, "-c", """
+import sys; sys.path.insert(0, '.')
+from src.utils.user_settings import UserSettings
+s = UserSettings.load()
+s.save()
+print('   ✓ settings saved to user_data/')
+"""], cwd=ROOT, check=False)
+
+    # 4. Run verification
+    print("\n[4/4] Verification finale...")
+    subprocess.run([sys.executable, "run_verify.py"], cwd=ROOT, check=False)
+    print("\n═══ SETUP TERMINÉ ═══")
+    print("\nLance maintenant :")
+    print("  ./ict dashboard    — interface visuelle")
+    print("  ./ict daemon       — scan continu + alertes")
+
+
+def cmd_dashboard():
+    """Lance Streamlit dashboard (accessible localhost + LAN)."""
+    ip = _get_lan_ip()
+    print("╔════════════════════════════════════════════════════════════╗")
+    print("║  🔴 ICT Framework — Dashboard accessible sur :             ║")
+    print(f"║    💻 Mac        : http://localhost:8501                   ║")
+    if ip:
+        print(f"║    📱 Phone/LAN  : http://{ip}:8501  {(' '*(25-len(ip)))}║")
+    print("║  Ctrl+C pour arrêter                                       ║")
+    print("╚════════════════════════════════════════════════════════════╝")
+    subprocess.run([
+        sys.executable, "-m", "streamlit", "run", str(ROOT / "dashboard.py"),
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+        "--browser.gatherUsageStats=false",
+    ], cwd=ROOT)
+
+
+def cmd_serve_public():
+    """Lance dashboard + tunnel Cloudflare → URL publique permanente gratuite."""
+    import shutil
+    # Try local bundled cloudflared first, then PATH
+    local_cf = ROOT / "bin" / "cloudflared"
+    cloudflared_bin = str(local_cf) if local_cf.exists() else shutil.which("cloudflared")
+    if not cloudflared_bin:
+        print("❌ cloudflared pas installé.")
+        print("   Téléchargement auto... ou installe via :")
+        print("   brew install cloudflared")
+        return
+
+    ip = _get_lan_ip()
+    print("╔════════════════════════════════════════════════════════════╗")
+    print("║  🌍 Lancement dashboard + tunnel Cloudflare (URL publique) ║")
+    print("╚════════════════════════════════════════════════════════════╝")
+
+    # Start Streamlit in background
+    import time
+    streamlit = subprocess.Popen([
+        sys.executable, "-m", "streamlit", "run", str(ROOT / "dashboard.py"),
+        "--server.address=0.0.0.0", "--server.port=8501",
+        "--browser.gatherUsageStats=false", "--server.headless=true",
+    ], cwd=ROOT)
+    time.sleep(4)
+    print(f"  💻 Local     : http://localhost:8501")
+    if ip:
+        print(f"  📱 LAN       : http://{ip}:8501")
+    print(f"  🌍 Public    : (URL apparaît ci-dessous dans 10s)\n")
+
+    try:
+        # Start tunnel (blocking, prints URL)
+        subprocess.run([cloudflared_bin, "tunnel", "--url", "http://localhost:8501"])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        streamlit.terminate()
+        print("\n✓ Tunnel + dashboard arrêtés.")
+
+
+def cmd_serve_ngrok():
+    """Alternative avec ngrok (plus simple mais URL change à chaque fois)."""
+    import shutil
+    if not shutil.which("ngrok"):
+        print("❌ ngrok pas installé.")
+        print("   brew install ngrok       # macOS")
+        print("   Puis : ngrok config add-authtoken <TOKEN>")
+        print("   Token : https://dashboard.ngrok.com/get-started/your-authtoken")
+        return
+
+    import time
+    streamlit = subprocess.Popen([
+        sys.executable, "-m", "streamlit", "run", str(ROOT / "dashboard.py"),
+        "--server.address=0.0.0.0", "--server.port=8501",
+        "--browser.gatherUsageStats=false", "--server.headless=true",
+    ], cwd=ROOT)
+    time.sleep(4)
+    print(f"  💻 Local : http://localhost:8501")
+    print(f"  🌍 Public: (URL ngrok apparaît ci-dessous)\n")
+    try:
+        subprocess.run(["ngrok", "http", "8501"])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        streamlit.terminate()
+
+
+def _get_lan_ip():
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def cmd_scan():
+    """One-shot scan."""
+    subprocess.run([sys.executable, "-m", "src.live_scanner.scanner"], cwd=ROOT)
+
+
+def cmd_daemon(args):
+    """Daemon loop."""
+    cmd = [sys.executable, str(ROOT / "run_daemon.py")] + args
+    subprocess.run(cmd, cwd=ROOT)
+
+
+def cmd_test_alerts():
+    """Test alertes."""
+    print("Testing desktop notification...")
+    from src.live_scanner.desktop_notify import notify
+    ok = notify("ICT Framework", "Test notification • tout OK ✓")
+    print(f"  Desktop: {'✓' if ok else '✗'}")
+
+    print("\nTesting Discord (if configured)...")
+    sys.path.insert(0, str(ROOT))
+    from src.utils.user_settings import load_settings, apply_env
+    apply_env()
+    from src.live_scanner.alerter import Alerter
+    from src.live_scanner.scanner import LiveSignal
+    from datetime import datetime
+    alerter = Alerter()
+    fake = LiveSignal(
+        timestamp_scan=datetime.utcnow().isoformat(),
+        symbol="XAUUSD", ltf="1h", side="long",
+        entry=2400.0, stop_loss=2395.0, take_profit_1=2410.0,
+        take_profit_2=2415.0, risk_reward=2.0,
+        fvg_size_atr=1.0, fvg_age_bars=3, fvg_impulsion=1.5,
+        killzone="ny_am_kz", current_price=2400.0,
+        distance_to_entry_pct=0.01, ml_prob_win=0.47,
+        tier="BALANCED", priority_score=75.0,
+    )
+    alerter._send(fake)
+    print("  (check Discord/Telegram)")
+
+
+def cmd_backtest(args):
+    """Backtest rapide."""
+    asset = args[0] if args else "XAUUSD"
+    subprocess.run([sys.executable, str(ROOT / "run_demo.py")], cwd=ROOT,
+                    env={**os.environ, "DEMO_SYMBOL": asset})
+
+
+def cmd_status():
+    """Health check."""
+    subprocess.run([sys.executable, str(ROOT / "run_verify.py")], cwd=ROOT)
+
+
+def cmd_calendar():
+    """Upcoming news."""
+    sys.path.insert(0, str(ROOT))
+    from src.news_calendar import NewsCalendar
+    cal = NewsCalendar()
+    cal.refresh()
+    upc = cal.upcoming(hours=48)
+    if not upc:
+        print("Aucun event à venir dans 48h (ou calendrier inaccessible)")
+        return
+    print(f"\n{'Time (UTC)':<20} {'Currency':<8} {'Impact':<8} Title")
+    print("─" * 80)
+    for ev in upc[:25]:
+        print(f"{ev.datetime_utc:%Y-%m-%d %H:%M} {ev.currency:<8} {ev.impact:<8} {ev.title}")
+
+
+def cmd_install_autostart():
+    """Installe LaunchAgent macOS."""
+    if sys.platform != "darwin":
+        print("Autostart only supported on macOS currently.")
+        return
+    plist_dir = Path.home() / "Library" / "LaunchAgents"
+    plist_dir.mkdir(exist_ok=True)
+    plist_path = plist_dir / "com.ictframework.daemon.plist"
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ictframework.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{sys.executable}</string>
+    <string>{ROOT}/run_daemon.py</string>
+    <string>--interval</string><string>15</string>
+    <string>--tier</string><string>balanced</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>WorkingDirectory</key><string>{ROOT}</string>
+  <key>StandardOutPath</key><string>{ROOT}/reports/logs/daemon.log</string>
+  <key>StandardErrorPath</key><string>{ROOT}/reports/logs/daemon.err</string>
+</dict>
+</plist>
+"""
+    plist_path.write_text(plist)
+    subprocess.run(["launchctl", "unload", str(plist_path)], check=False,
+                    capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist_path)], check=True)
+    print(f"✓ LaunchAgent installé : {plist_path}")
+    print("  Le daemon démarrera automatiquement au login.")
+    print("  Logs : reports/logs/daemon.log")
+
+
+def cmd_uninstall_autostart():
+    if sys.platform != "darwin":
+        return
+    plist_path = Path.home() / "Library" / "LaunchAgents" / "com.ictframework.daemon.plist"
+    if plist_path.exists():
+        subprocess.run(["launchctl", "unload", str(plist_path)], check=False,
+                        capture_output=True)
+        plist_path.unlink()
+        print(f"✓ LaunchAgent retiré : {plist_path}")
+    else:
+        print("Pas de LaunchAgent installé.")
+
+
+USAGE = __doc__
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(USAGE)
+        sys.exit(0)
+
+    cmd = sys.argv[1]
+    args = sys.argv[2:]
+
+    routes = {
+        "setup": lambda: cmd_setup(),
+        "dashboard": lambda: cmd_dashboard(),
+        "serve-public": lambda: cmd_serve_public(),
+        "serve-ngrok": lambda: cmd_serve_ngrok(),
+        "scan": lambda: cmd_scan(),
+        "daemon": lambda: cmd_daemon(args),
+        "test": lambda: cmd_test_alerts(),
+        "backtest": lambda: cmd_backtest(args),
+        "status": lambda: cmd_status(),
+        "calendar": lambda: cmd_calendar(),
+        "install-autostart": lambda: cmd_install_autostart(),
+        "uninstall-autostart": lambda: cmd_uninstall_autostart(),
+        "help": lambda: print(USAGE),
+        "--help": lambda: print(USAGE),
+        "-h": lambda: print(USAGE),
+    }
+    if cmd not in routes:
+        print(f"Unknown command: {cmd}\n")
+        print(USAGE)
+        sys.exit(1)
+    routes[cmd]()
+
+
+if __name__ == "__main__":
+    main()

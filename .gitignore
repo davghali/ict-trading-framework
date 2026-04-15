@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Data & reports (peuvent être volumineux)
+data/raw/
+data/processed/
+data/features/
+reports/
+!reports/.gitkeep
+
+# User private data (TON config + trades)
+user_data/
+!user_data/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Cloudflared binary (téléchargé auto par setup.sh)
+bin/cloudflared
+bin/cloudflared-darwin-*
+bin/*.tar
+bin/*.gz
+
+# Pytest / ML caches
+.pytest_cache/
+reports/ml_models/

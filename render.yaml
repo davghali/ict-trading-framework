@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ict-framework
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8501
+      - key: TZ
+        value: Europe/Paris
+    healthCheckPath: /_stcore/health
+    autoDeploy: true
