@@ -1,16 +1,19 @@
 [server]
 headless = true
 port = 8501
-address = "0.0.0.0"              # accessible depuis le LAN
+address = "0.0.0.0"
 enableCORS = false
-enableXsrfProtection = true
+enableXsrfProtection = false       # nécessaire pour proxy/tunnel
+enableWebsocketCompression = false # fix websocket via cloudflared
+runOnSave = false
+maxUploadSize = 200
 
 [browser]
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#DC2626"         # rouge ICT
-backgroundColor = "#0F172A"      # slate 900
+primaryColor = "#DC2626"
+backgroundColor = "#0F172A"
 secondaryBackgroundColor = "#1E293B"
 textColor = "#F1F5F9"
 font = "sans serif"

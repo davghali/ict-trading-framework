@@ -13,8 +13,10 @@ Commandes :
   ict backtest <asset>   — backtest rapide
   ict status             — health check
   ict calendar           — affiche news à venir
-  ict install-autostart  — installe LaunchAgent macOS (auto-start au boot)
-  ict uninstall-autostart— retire le LaunchAgent
+  ict install-autostart  — installe LaunchAgents (dashboard + tunnel + daemon)
+  ict uninstall-autostart— retire tous les LaunchAgents
+  ict services           — status des services autostart
+  ict url                — affiche URL publique actuelle (+copie clipboard)
 """
 import sys
 import os
@@ -239,53 +241,85 @@ def cmd_calendar():
 
 
 def cmd_install_autostart():
-    """Installe LaunchAgent macOS."""
+    """Installe LaunchAgents macOS : dashboard + tunnel + daemon (auto-start)."""
     if sys.platform != "darwin":
         print("Autostart only supported on macOS currently.")
         return
-    plist_dir = Path.home() / "Library" / "LaunchAgents"
-    plist_dir.mkdir(exist_ok=True)
-    plist_path = plist_dir / "com.ictframework.daemon.plist"
-    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.ictframework.daemon</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>{sys.executable}</string>
-    <string>{ROOT}/run_daemon.py</string>
-    <string>--interval</string><string>15</string>
-    <string>--tier</string><string>balanced</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>WorkingDirectory</key><string>{ROOT}</string>
-  <key>StandardOutPath</key><string>{ROOT}/reports/logs/daemon.log</string>
-  <key>StandardErrorPath</key><string>{ROOT}/reports/logs/daemon.err</string>
-</dict>
-</plist>
-"""
-    plist_path.write_text(plist)
-    subprocess.run(["launchctl", "unload", str(plist_path)], check=False,
-                    capture_output=True)
-    subprocess.run(["launchctl", "load", str(plist_path)], check=True)
-    print(f"✓ LaunchAgent installé : {plist_path}")
-    print("  Le daemon démarrera automatiquement au login.")
-    print("  Logs : reports/logs/daemon.log")
+    subprocess.run(["bash", str(ROOT / "scripts" / "install_autostart.sh")], check=True)
 
 
 def cmd_uninstall_autostart():
     if sys.platform != "darwin":
         return
-    plist_path = Path.home() / "Library" / "LaunchAgents" / "com.ictframework.daemon.plist"
-    if plist_path.exists():
-        subprocess.run(["launchctl", "unload", str(plist_path)], check=False,
-                        capture_output=True)
-        plist_path.unlink()
-        print(f"✓ LaunchAgent retiré : {plist_path}")
-    else:
-        print("Pas de LaunchAgent installé.")
+    subprocess.run(["bash", str(ROOT / "scripts" / "uninstall_autostart.sh")], check=True)
+
+
+def cmd_url():
+    """Affiche l'URL publique actuelle + la copie dans le clipboard."""
+    url_file = ROOT / "user_data" / "public_url.txt"
+    if not url_file.exists():
+        print("❌ Pas d'URL publique enregistrée.")
+        print("   Lance l'autostart : ./ict install-autostart")
+        print("   Ou manuel : ./ict serve-public")
+        return
+    url = url_file.read_text().strip()
+    if not url:
+        print("❌ URL vide (tunnel pas encore actif ?)")
+        return
+    print("╔═══════════════════════════════════════════════════════════════════╗")
+    print("║  🌍 TON URL PUBLIQUE                                             ║")
+    print("╚═══════════════════════════════════════════════════════════════════╝")
+    print()
+    print(f"   {url}")
+    print()
+    # Copy to clipboard
+    try:
+        subprocess.run(["pbcopy"], input=url.encode(), check=True)
+        print("   ✓ Copiée dans le clipboard (Cmd+V pour coller)")
+    except Exception:
+        pass
+    # Also LAN
+    ip = _get_lan_ip()
+    if ip:
+        print()
+        print(f"   📱 LAN (phone Wi-Fi) : http://{ip}:8501")
+    print(f"   💻 Local             : http://localhost:8501")
+    print()
+
+
+def cmd_status_services():
+    """Check si les services autostart tournent."""
+    if sys.platform != "darwin":
+        print("macOS only.")
+        return
+    result = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+    running = [l for l in result.stdout.splitlines() if "ictframework" in l]
+    print("╔═══════════════════════════════════════════════════════════════════╗")
+    print("║  📊 SERVICES STATUS                                              ║")
+    print("╚═══════════════════════════════════════════════════════════════════╝")
+    if not running:
+        print("  ❌ Aucun service actif. Lance : ./ict install-autostart")
+        return
+    for line in running:
+        cols = line.split()
+        pid = cols[0] if cols else "?"
+        status = cols[1] if len(cols) > 1 else "?"
+        label = cols[2] if len(cols) > 2 else "?"
+        icon = "✅" if pid != "-" else "⚠"
+        print(f"  {icon} {label:40s} PID={pid} status={status}")
+
+    # Dashboard reachable?
+    print()
+    import urllib.request
+    try:
+        urllib.request.urlopen("http://localhost:8501/_stcore/health", timeout=3)
+        print("  ✅ Dashboard répond sur http://localhost:8501")
+    except Exception:
+        print("  ⚠ Dashboard NE répond PAS (démarrage en cours ?)")
+    # URL file
+    url_file = ROOT / "user_data" / "public_url.txt"
+    if url_file.exists() and url_file.read_text().strip():
+        print(f"  🌍 URL publique   : {url_file.read_text().strip()}")
 
 
 USAGE = __doc__
@@ -309,6 +343,8 @@ def main():
         "test": lambda: cmd_test_alerts(),
         "backtest": lambda: cmd_backtest(args),
         "status": lambda: cmd_status(),
+        "services": lambda: cmd_status_services(),
+        "url": lambda: cmd_url(),
         "calendar": lambda: cmd_calendar(),
         "install-autostart": lambda: cmd_install_autostart(),
         "uninstall-autostart": lambda: cmd_uninstall_autostart(),

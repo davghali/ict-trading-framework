@@ -16,13 +16,16 @@ matplotlib>=3.7
 mplfinance>=0.12
 plotly>=5.17
 
+# Web UI (REQUIRED for Streamlit Cloud)
+streamlit>=1.40
+
 # Utils
 pyyaml>=6.0
 python-dateutil>=2.8
 pytz>=2023.3
 tqdm>=4.66
 
-# Testing
-pytest>=7.4
-pytest-cov>=4.1
-hypothesis>=6.90
+# Testing (dev only — pas requis sur cloud)
+# pytest>=7.4
+# pytest-cov>=4.1
+# hypothesis>=6.90
