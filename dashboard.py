@@ -24,15 +24,16 @@ warnings.filterwarnings("ignore")
 
 import streamlit as st
 
-from src.data_engine import DataLoader
-from src.feature_engine import FeatureEngine
-from src.utils.types import Timeframe
+# LAZY imports — only import light stuff at top level (fast startup)
 from src.utils.config import list_instruments, get_prop_firm_rules
 from src.utils.user_settings import UserSettings, apply_env
 from src.trade_journal import TradeJournal, JournalEntry
 
 apply_env()
 SETTINGS = UserSettings.load()
+
+# Heavy imports done INSIDE page handlers only (DataLoader, FeatureEngine, etc.)
+# This ensures the app loads in <5 seconds on cloud
 
 # ------------------------------------------------------------------
 st.set_page_config(
@@ -352,20 +353,8 @@ if page == "🏠 ACCUEIL":
             st.caption("Aucun trade loggé encore.")
 
     with c2:
-        st.markdown("##### 📅 Prochains events news")
-        try:
-            from src.news_calendar import NewsCalendar
-            cal = NewsCalendar(min_impact="High")
-            cal.refresh()
-            upc = [e for e in cal.upcoming(hours=12) if e.impact == "High"][:3]
-            if upc:
-                for ev in upc:
-                    t = ev.datetime_utc.strftime("%H:%M")
-                    st.caption(f"🔴 **{t}** {ev.currency} {ev.title[:35]}")
-            else:
-                st.caption("✅ Rien dans les 12h")
-        except Exception:
-            st.caption("N/A")
+        st.markdown("##### 📅 News")
+        st.caption("Voir page NEWS pour les events macro")
 
     with c3:
         st.markdown("##### 🛡️ Protection FTMO")
