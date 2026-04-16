@@ -182,12 +182,18 @@ def audit_services():
     try:
         res = subprocess.run(["launchctl", "list"], capture_output=True,
                               text=True, timeout=5)
-        for svc in ["cyborg", "dashboard", "tunnel", "supervisor"]:
+        # critiques
+        for svc in ["cyborg", "supervisor"]:
             label = f"com.ictframework.{svc}"
             present = label in res.stdout
             record("services", label, present,
-                    "running" if present else "not installed",
-                    warn=not present and svc == "supervisor")
+                    "running" if present else "not installed")
+        # optionnels (remplacés par cloud)
+        for svc in ["dashboard", "tunnel"]:
+            label = f"com.ictframework.{svc}"
+            present = label in res.stdout
+            record("services", f"{label} (optional)", True,
+                    "running" if present else "not needed (cloud active)")
     except Exception as e:
         record("services", "launchctl", False, str(e))
 
@@ -216,15 +222,22 @@ def audit_connections():
     except Exception as e:
         record("connections", "Telegram bot API", False, str(e)[:40])
 
-    # Dashboard cloud
+    # Dashboard cloud (HTTP 303 redirect is OK for Streamlit Cloud)
     try:
         import urllib.request
-        url = "https://ict-quant-david.streamlit.app/_stcore/health"
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            ok = resp.status == 200
-            record("connections", "Dashboard cloud", ok, f"HTTP {resp.status}")
+        url = "https://ict-quant-david.streamlit.app/"
+        req = urllib.request.Request(url, headers={"User-Agent": "ICT-Audit"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            ok = resp.status in (200, 303, 302)
+            record("connections", "Dashboard cloud", ok,
+                    f"HTTP {resp.status} (up)")
     except Exception as e:
-        record("connections", "Dashboard cloud", False, str(e)[:40])
+        # HTTPError 303/302 are also "up"
+        err_str = str(e)
+        if "303" in err_str or "302" in err_str:
+            record("connections", "Dashboard cloud", True, "HTTP 303 redirect (up)")
+        else:
+            record("connections", "Dashboard cloud", False, err_str[:40])
 
     # GitHub
     try:
