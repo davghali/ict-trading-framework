@@ -45,32 +45,12 @@ st.set_page_config(
 # ------------------------------------------------------------------
 # AUTO-HEALING : télécharge la data si manquante (cloud first-run)
 # ------------------------------------------------------------------
-# CLOUD MODE : bootstrap LÉGER — seulement 3 assets D1 au démarrage
-# Le reste se télécharge à la demande (quand l'user clique Scanner)
+# CLOUD MODE : ZÉRO bootstrap au démarrage = chargement instantané
+# La data se télécharge uniquement quand l'user clique "Scanner"
 # ------------------------------------------------------------------
-@st.cache_resource
-def _bootstrap_data():
-    """Télécharge le MINIMUM de data au démarrage (cloud-friendly)."""
-    data_dir = Path("data/raw")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    existing = list(data_dir.glob("*.parquet"))
-    if len(existing) >= 4:
-        return True
-
-    try:
-        from src.data_engine.downloader import download_asset
-        from src.utils.types import Timeframe
-        # Seulement 3 assets D1 = rapide (5-10s)
-        for sym in ["XAUUSD", "NAS100", "EURUSD"]:
-            try:
-                download_asset(sym, Timeframe.D1, save=True)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return True
-
-_bootstrap_data()
+Path("data/raw").mkdir(parents=True, exist_ok=True)
+Path("user_data").mkdir(parents=True, exist_ok=True)
+Path("reports").mkdir(parents=True, exist_ok=True)
 
 # ------------------------------------------------------------------
 # CSS — cards visuelles simples
