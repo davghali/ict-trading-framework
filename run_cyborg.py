@@ -43,7 +43,7 @@ log = get_logger(__name__)
 
 
 SCAN_INTERVAL_MIN = 15
-MIN_GRADE = "A"        # S / A+ / A / B — seuil pour alerter
+MIN_GRADE = "A+"       # SNIPER MODE — uniquement A+ et S
 
 
 def _get_htf_dfs(symbol: str, ltf: Timeframe):
