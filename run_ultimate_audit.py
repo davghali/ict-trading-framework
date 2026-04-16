@@ -93,6 +93,12 @@ def audit_infrastructure():
         "src.telegram_bot", "src.cross_asset", "src.multi_tf",
         "src.dynamic_exit", "src.mt5_execution", "src.recap",
         "src.health", "src.trade_manager",
+        "src.mt5_execution.multi_account", "src.portfolio_risk",
+        "src.strategy_pack", "src.strategy_pack.silver_bullet",
+        "src.strategy_pack.judas_swing", "src.strategy_pack.power_of_three",
+        "src.sentiment", "src.sentiment.cot", "src.sentiment.retail",
+        "src.trade_analytics", "src.trade_analytics.mae_mfe",
+        "src.alerts", "src.alerts.multi_channel",
     ]
     for m in critical:
         try:
