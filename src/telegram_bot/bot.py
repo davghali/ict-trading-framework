@@ -89,33 +89,83 @@ class TelegramBot:
         return None
 
     # ------------------------------------------------------------------
-    def send_signal_with_buttons(self, signal, extra_info: str = "") -> Optional[int]:
-        """Envoie un signal avec boutons inline ACCEPT / SKIP / DETAILS."""
+    def send_signal_with_buttons(self, signal, extra_info: str = "",
+                                  enhanced=None) -> Optional[int]:
+        """Envoie un signal avec boutons inline ACCEPT / SKIP / DETAILS.
+
+        Si enhanced (EnhancedSignal) fourni → affiche le full cyborg package.
+        """
         if not self.enabled:
             return None
 
         side_emoji = "🟢 ACHETER" if signal.side == "long" else "🔴 VENDRE"
-        tier_emoji = {"ELITE": "🎯", "BALANCED": "⚖", "VOLUME": "🚀"}.get(signal.tier, "•")
+        tier_emoji = {"ELITE": "🎯", "BALANCED": "⚖", "VOLUME": "🚀",
+                      "S": "💎", "A+": "🎯", "A": "⭐", "B": "✓"}.get(
+            enhanced.cyborg_grade if enhanced else signal.tier, "•")
         p = f"{signal.ml_prob_win * 100:.0f}%" if signal.ml_prob_win else "—"
 
         # Build unique signal id for callback
         sig_id = f"{signal.symbol}_{signal.ltf}_{signal.fvg_age_bars}_{int(signal.entry * 1000)}"
         self._persist_pending(sig_id, signal)
 
+        # Grade label
+        if enhanced:
+            label = f"{enhanced.cyborg_grade} GRADE"
+            prob_display = f"{enhanced.final_probability * 100:.0f}%"
+        else:
+            label = signal.tier
+            prob_display = p
+
         text = (
-            f"*{tier_emoji} {signal.tier} — {signal.symbol} {signal.ltf.upper()}*\n\n"
+            f"*{tier_emoji} {label} — {signal.symbol} {signal.ltf.upper()}*\n\n"
             f"*{side_emoji}*\n"
             f"━━━━━━━━━━━━━━━━━\n"
             f"📍 Entry : `{signal.entry:.4f}`\n"
             f"🛑 SL    : `{signal.stop_loss:.4f}`\n"
-            f"🎯 TP1   : `{signal.take_profit_1:.4f}`  (2R)\n"
-            f"🏁 TP2   : `{signal.take_profit_2:.4f}`  (3R)\n"
+        )
+
+        # Dynamic exit from enhancer
+        if enhanced and enhanced.exit_plan:
+            ep = enhanced.exit_plan
+            text += f"🎯 TP1   : `{ep.tp1:.4f}`  ({ep.rr_to_tp1:.1f}R)\n"
+            text += f"🏁 TP2   : `{ep.tp2:.4f}`  ({ep.rr_to_tp2:.1f}R)\n"
+            if ep.tp3:
+                text += f"🚀 TP3   : `{ep.tp3:.4f}`  ({ep.max_rr:.1f}R)\n"
+        else:
+            text += f"🎯 TP1   : `{signal.take_profit_1:.4f}`  (2R)\n"
+            text += f"🏁 TP2   : `{signal.take_profit_2:.4f}`  (3R)\n"
+
+        text += (
             f"━━━━━━━━━━━━━━━━━\n"
             f"📊 RR    : {signal.risk_reward:.1f}\n"
-            f"🎲 P(win): *{p}*\n"
+            f"🎲 P(win): *{prob_display}*\n"
             f"⏰ KZ    : {signal.killzone.replace('_', ' ').upper()}\n"
-            f"💰 Prix  : {signal.current_price:.4f}  (dist {signal.distance_to_entry_pct:.2f}%)\n"
         )
+
+        # Cross-asset confirmation
+        if enhanced and enhanced.cross_asset:
+            ca = enhanced.cross_asset
+            text += f"\n🔗 *Cross-asset* ({ca.score:.0%}) :\n"
+            for c in ca.confirmations[:3]:
+                text += f"  • {c}\n"
+
+        # Multi-TF alignment
+        if enhanced and enhanced.multi_tf_score > 0:
+            text += f"\n📐 *Multi-TF* ({enhanced.multi_tf_score:.0%}) :\n"
+            for c in enhanced.multi_tf_details[:4]:
+                text += f"  • {c}\n"
+
+        # Ladder entries
+        if enhanced and len(enhanced.ladder_entries) > 1:
+            text += f"\n🪜 *Ladder entries* :\n"
+            for i, le in enumerate(enhanced.ladder_entries, 1):
+                text += f"  {i}. `{le.price:.4f}` × {le.lot_pct*100:.0f}%\n"
+
+        # Regime / exit strategy
+        if enhanced and enhanced.exit_plan:
+            text += f"\n📊 *Régime* : {enhanced.exit_plan.regime}\n"
+            text += f"💡 {enhanced.exit_plan.rationale}\n"
+
         if extra_info:
             text += f"\n{extra_info}"
 
