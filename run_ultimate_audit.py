@@ -97,8 +97,11 @@ def audit_infrastructure():
         "src.strategy_pack", "src.strategy_pack.silver_bullet",
         "src.strategy_pack.judas_swing", "src.strategy_pack.power_of_three",
         "src.sentiment", "src.sentiment.cot", "src.sentiment.retail",
+        "src.sentiment.cot_real", "src.sentiment.retail_real",
         "src.trade_analytics", "src.trade_analytics.mae_mfe",
         "src.alerts", "src.alerts.multi_channel",
+        "src.ml_retrain", "src.ml_retrain.retrainer",
+        "src.ai_auditor", "src.ai_auditor.claude_auditor",
     ]
     for m in critical:
         try:
