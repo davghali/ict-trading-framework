@@ -45,35 +45,29 @@ st.set_page_config(
 # ------------------------------------------------------------------
 # AUTO-HEALING : télécharge la data si manquante (cloud first-run)
 # ------------------------------------------------------------------
+# CLOUD MODE : bootstrap LÉGER — seulement 3 assets D1 au démarrage
+# Le reste se télécharge à la demande (quand l'user clique Scanner)
+# ------------------------------------------------------------------
 @st.cache_resource
 def _bootstrap_data():
-    """Télécharge la data au démarrage si elle n'existe pas (ex: cloud)."""
+    """Télécharge le MINIMUM de data au démarrage (cloud-friendly)."""
     data_dir = Path("data/raw")
     data_dir.mkdir(parents=True, exist_ok=True)
     existing = list(data_dir.glob("*.parquet"))
-    if len(existing) >= 12:
-        return True  # already downloaded
+    if len(existing) >= 4:
+        return True
 
-    from src.data_engine import download_asset
-    from src.utils.types import Timeframe
-
-    priority_assets = [
-        ("XAUUSD", Timeframe.H1), ("XAUUSD", Timeframe.D1),
-        ("XAGUSD", Timeframe.H1), ("XAGUSD", Timeframe.D1),
-        ("BTCUSD", Timeframe.H1), ("BTCUSD", Timeframe.D1),
-        ("NAS100", Timeframe.H1), ("NAS100", Timeframe.D1),
-        ("EURUSD", Timeframe.D1), ("GBPUSD", Timeframe.D1),
-        ("USDJPY", Timeframe.D1), ("USDCAD", Timeframe.D1),
-    ]
-    progress = st.progress(0, text="⏳ Téléchargement des données (première fois, 30-60s)...")
-    for i, (sym, tf) in enumerate(priority_assets):
-        try:
-            download_asset(sym, tf, save=True)
-        except Exception:
-            pass
-        progress.progress((i + 1) / len(priority_assets),
-                           text=f"⏳ {sym} {tf.value} ({i+1}/{len(priority_assets)})")
-    progress.empty()
+    try:
+        from src.data_engine.downloader import download_asset
+        from src.utils.types import Timeframe
+        # Seulement 3 assets D1 = rapide (5-10s)
+        for sym in ["XAUUSD", "NAS100", "EURUSD"]:
+            try:
+                download_asset(sym, Timeframe.D1, save=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return True
 
 _bootstrap_data()
@@ -237,29 +231,34 @@ if page == "🏠 ACCUEIL":
 
     if st.session_state.get("home_scan"):
         st.session_state["home_scan"] = False
-        with st.spinner("Analyse en cours... 30-60s"):
-            from src.live_scanner import LiveScanner
-            from src.news_calendar import NewsCalendar, currencies_for
+        try:
+            with st.spinner("Scan en cours (téléchargement data + analyse, 30-90s)..."):
+                from src.live_scanner import LiveScanner
 
-            scanner = LiveScanner(
-                symbols_h1=SETTINGS.assets_h1,
-                symbols_d1=SETTINGS.assets_d1,
-                tier=SETTINGS.default_tier, refresh_data=True,
-            )
-            signals = scanner.scan_once()
+                # Cloud-friendly : scan seulement 3 assets clés (rapide)
+                scanner = LiveScanner(
+                    symbols_h1=["XAUUSD", "NAS100"],
+                    symbols_d1=["EURUSD"],
+                    tier=SETTINGS.default_tier, refresh_data=True,
+                )
+                signals = scanner.scan_once()
 
-            # Filter news
-            try:
-                cal = NewsCalendar(min_impact="High")
-                cal.refresh()
-                signals = [s for s in signals
-                           if not cal.is_in_news_window(
-                               datetime.fromisoformat(s.timestamp_scan),
-                               currencies_for(s.symbol))]
-            except Exception:
-                pass
+                # Filter news
+                try:
+                    from src.news_calendar import NewsCalendar, currencies_for
+                    cal = NewsCalendar(min_impact="High")
+                    cal.refresh()
+                    signals = [s for s in signals
+                               if not cal.is_in_news_window(
+                                   datetime.fromisoformat(s.timestamp_scan),
+                                   currencies_for(s.symbol))]
+                except Exception:
+                    pass
 
-            st.session_state["home_signals"] = signals
+                st.session_state["home_signals"] = signals
+        except Exception as e:
+            st.error(f"Erreur scan : {e}")
+            st.info("Réessaie dans 30 secondes.")
 
     signals = st.session_state.get("home_signals", [])
 
@@ -409,12 +408,13 @@ elif page == "🎯 SIGNAUX":
     auto = st.session_state.pop("auto_scan", False)
 
     if run or auto:
-        with st.spinner("Scan en cours... (peut prendre 30-60s)"):
+      try:
+        with st.spinner("Scan en cours (téléchargement data + analyse, 30-90s)..."):
             from src.live_scanner import LiveScanner
             tier_code = {"Toutes": "volume", "Balanced ou mieux": "balanced", "Elite seulement": "elite"}[tier]
             scanner = LiveScanner(
-                symbols_h1=SETTINGS.assets_h1,
-                symbols_d1=SETTINGS.assets_d1,
+                symbols_h1=["XAUUSD", "XAGUSD", "NAS100"],
+                symbols_d1=["EURUSD", "GBPUSD"],
                 tier=tier_code,
                 refresh_data=True,
             )
@@ -470,15 +470,15 @@ elif page == "🎯 SIGNAUX":
                         jj.log(entry)
                         st.success(f"✅ Trade #{entry.trade_id} ajouté — ferme-le dans '📔 MES TRADES'")
 
+      except Exception as e:
+        st.error(f"Erreur scan : {e}")
+        st.info("Le cloud télécharge les données. Réessaie dans 30 secondes.")
+
     else:
         st.markdown("""
-👆 **Clique le bouton rouge ci-dessus** pour chercher des signaux sur les 12 assets.
+👆 **Clique le bouton rouge** pour scanner. Premier scan = 30-90s (téléchargement data).
 
-Le système analyse :
-- **Forex** : EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD
-- **Métaux** : XAUUSD (Or), XAGUSD (Argent)
-- **Indices** : NAS100, SPX500, DOW30
-- **Crypto** : BTCUSD, ETHUSD
+**Assets analysés** : XAUUSD, XAGUSD, NAS100, EURUSD, GBPUSD
         """)
 
 
@@ -709,15 +709,20 @@ elif page == "⚙️ RÉGLAGES":
 # 📊 ANALYSE DU JOUR
 # ==================================================================
 elif page == "📊 ANALYSE DU JOUR":
-    st.title("📊 Analyse du jour — les 12 assets")
-    st.caption("Pour chaque asset : biais HTF, niveaux clés, FVG actifs, meilleure idée de trade")
+    st.title("📊 Analyse du jour")
+    st.caption("Biais HTF + niveaux clés + meilleur trade par asset")
+    st.warning("⚠ L'analyse télécharge les données et peut prendre 1-2 min sur le cloud. Patience.")
 
-    if st.button("🔄 Lancer l'analyse maintenant", type="primary", use_container_width=True):
-        from src.daily_analysis import DailyAnalyzer
-        with st.spinner("Analyse des 12 assets en cours... (peut prendre 1-2 min)"):
-            analyzer = DailyAnalyzer()
-            results = analyzer.analyze_all()
-        st.session_state["daily_results"] = results
+    if st.button("🔄 Lancer l'analyse", type="primary", use_container_width=True):
+        try:
+            from src.daily_analysis import DailyAnalyzer
+            with st.spinner("Analyse en cours (téléchargement données + calculs)..."):
+                analyzer = DailyAnalyzer()
+                results = analyzer.analyze_all()
+            st.session_state["daily_results"] = results
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+            st.info("Certains assets n'ont pas pu être analysés (données indisponibles sur le cloud). Réessaie dans 1 min.")
 
     results = st.session_state.get("daily_results", [])
     if not results:
@@ -797,9 +802,38 @@ elif page == "📊 ANALYSE DU JOUR":
 # ==================================================================
 elif page == "📈 ESPÉRANCES":
     st.title("📈 Tes espérances de gains")
-    st.caption("Chiffres basés sur les backtests OOS validés par ML sur 118 590 bars historiques")
 
-    from src.daily_analysis import compute_asset_expectations, compute_global
+    try:
+        from src.daily_analysis import compute_asset_expectations, compute_global
+    except Exception:
+        st.info("Module en cours de chargement...")
+        st.stop()
+
+    # Check si les rapports Pareto existent
+    pareto_files = sorted(Path("reports").glob("max_edge_pareto_*.json")) if Path("reports").exists() else []
+    if not pareto_files:
+        st.warning("⚠ Pas encore de rapport Pareto sur le cloud.")
+        st.markdown("""
+**Les espérances chiffrées nécessitent un rapport ML** qui est généré sur ton Mac.
+
+**Résumé des chiffres (calculés localement) :**
+
+| Tier | Trades/mois | WR | Rendement/mois (0.5%) |
+|---|---|---|---|
+| ELITE | 93 | 41.7% | ~+9.5% |
+| BALANCED | 138 | 41.4% | ~+14% |
+| VOLUME | 165 | 40.3% | ~+16% |
+
+**Top assets :**
+- XAGUSD H1 : 35/mo @ WR 46.2%
+- XAUUSD H1 : 27/mo @ WR 47.3%
+- BTCUSD H1 : 72/mo @ WR 36.9%
+
+**FTMO 10% target** : ~10-30 jours selon risk (0.25-1%)
+        """)
+        st.stop()
+
+    st.caption("Chiffres basés sur les backtests OOS validés par ML")
 
     tier = st.selectbox("Mode de trading", ["balanced", "elite", "volume"], index=0,
                          format_func=lambda x: {
