@@ -325,6 +325,67 @@ class TelegramBot:
             elif text.startswith("/scan"):
                 self.send_text("🔍 Lancement du scan...")
                 Thread(target=self._run_scan, daemon=True).start()
+            # ========== AUTO-EXECUTION COMMANDS ==========
+            elif text.startswith("/pause"):
+                auto = getattr(self, "auto_executor", None)
+                if auto is None:
+                    self.send_text("⚠️ Auto-executor non configuré")
+                else:
+                    auto.pause(reason="Telegram /pause")
+                    self.send_text(
+                        "⏸ *AUTO-EXECUTION PAUSÉE*\n"
+                        "Le bot continuera à envoyer les alertes mais "
+                        "ne placera plus d'ordre.\n\n"
+                        "Utilise /resume pour reprendre."
+                    )
+            elif text.startswith("/resume"):
+                auto = getattr(self, "auto_executor", None)
+                if auto is None:
+                    self.send_text("⚠️ Auto-executor non configuré")
+                else:
+                    auto.resume()
+                    self.send_text(
+                        "▶️ *AUTO-EXECUTION REPRISE*\n"
+                        "Les signaux A+ seront à nouveau exécutés automatiquement."
+                    )
+            elif text.startswith("/auto_status"):
+                auto = getattr(self, "auto_executor", None)
+                if auto is None:
+                    self.send_text("⚠️ Auto-executor non configuré")
+                else:
+                    self.send_text(f"```\n{auto.summary()}\n```")
+            elif text.startswith("/positions"):
+                auto = getattr(self, "auto_executor", None)
+                if auto is None:
+                    self.send_text("⚠️ Auto-executor non configuré")
+                else:
+                    try:
+                        positions = auto.mt5.list_positions()
+                        if not positions:
+                            self.send_text("📊 Aucune position ouverte")
+                        else:
+                            lines = ["📊 *Positions ouvertes*"]
+                            for p in positions:
+                                lines.append(
+                                    f"• {p['symbol']} {p['type']} "
+                                    f"{p['volume']}lot "
+                                    f"PnL {p['profit']:+.2f} USD"
+                                )
+                            self.send_text("\n".join(lines))
+                    except Exception as e:
+                        self.send_text(f"Erreur : {e}")
+            elif text.startswith("/close_all"):
+                auto = getattr(self, "auto_executor", None)
+                if auto is None:
+                    self.send_text("⚠️ Auto-executor non configuré")
+                else:
+                    closed = auto.close_all(reason="Telegram /close_all")
+                    auto.pause(reason="After /close_all")
+                    self.send_text(
+                        f"🚨 *URGENCE — {closed} positions fermées*\n"
+                        f"Auto-executor PAUSÉ.\n"
+                        f"Utilise /resume pour relancer."
+                    )
 
     # ------------------------------------------------------------------
     def _on_take(self, callback_id: str, message_id: int, sig_id: str,

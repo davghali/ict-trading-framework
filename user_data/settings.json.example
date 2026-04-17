@@ -54,5 +54,17 @@
   "pyramid_add_risk_pct": 0.3,
   "ml_retrain_frequency": "daily",
   "ml_use_regime_detection": true,
-  "min_grade_sniper": "A+"
+  "min_grade_sniper": "A+",
+
+  "_auto_execution_comment": "Full-auto MT5 execution (passez auto_execute a false pour signal-only)",
+  "auto_execute": true,
+  "auto_max_concurrent_positions": 5,
+  "auto_max_positions_per_symbol": 1,
+  "auto_daily_loss_cap_pct": 3.5,
+  "auto_min_balance_pct": 90.0,
+  "auto_allow_weekends": false,
+  "auto_trading_days_utc": [0, 1, 2, 3, 4],
+  "auto_friday_cutoff_hour_utc": 15,
+  "auto_monday_earliest_hour_utc": 7,
+  "position_check_interval": 60
 }

@@ -107,7 +107,17 @@ if (Test-Path $settingsPath) {
             "pyramid_add_risk_pct",
             "ml_retrain_frequency",
             "ml_use_regime_detection",
-            "min_grade_sniper"
+            "min_grade_sniper",
+            "auto_execute",
+            "auto_max_concurrent_positions",
+            "auto_max_positions_per_symbol",
+            "auto_daily_loss_cap_pct",
+            "auto_min_balance_pct",
+            "auto_allow_weekends",
+            "auto_trading_days_utc",
+            "auto_friday_cutoff_hour_utc",
+            "auto_monday_earliest_hour_utc",
+            "position_check_interval"
         )
 
         $added = 0
