@@ -99,8 +99,8 @@ class TelegramBot:
             return None
 
         side_emoji = "🟢 ACHETER" if signal.side == "long" else "🔴 VENDRE"
-        tier_emoji = {"ELITE": "🎯", "BALANCED": "⚖", "VOLUME": "🚀",
-                      "S": "💎", "A+": "🎯", "A": "⭐", "B": "✓"}.get(
+        # Grade system : S/A+/A/B (legacy ELITE/BALANCED/VOLUME retires)
+        tier_emoji = {"S": "💎", "A+": "🎯", "A": "⭐", "B": "✓"}.get(
             enhanced.cyborg_grade if enhanced else signal.tier, "•")
         p = f"{signal.ml_prob_win * 100:.0f}%" if signal.ml_prob_win else "—"
 
