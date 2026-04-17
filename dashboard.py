@@ -815,7 +815,7 @@ elif page == "📈 ESPÉRANCES":
     asset_exps = compute_asset_expectations(tier)
 
     if global_exp is None:
-        st.warning("Pas de données Pareto. Lance `python3 run_maximum_edge.py` d'abord.")
+        st.warning("Pas de données Pareto disponibles (legacy system retiré). Utilise les modules ML regime-aware via `src/ml_retrain/regime_aware_retrainer.py`.")
         st.stop()
 
     # ─── GLOBAL

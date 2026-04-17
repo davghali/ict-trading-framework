@@ -153,7 +153,8 @@ python3 -m pytest tests/ -v
 ├── ict                     # CLI principal
 ├── setup.sh                # installer
 ├── dashboard.py            # UI Streamlit
-├── run_daemon.py           # daemon 24/7
+├── run_cyborg_full_auto.py # daemon 24/7 FULL AUTO (production)
+├── run_cyborg_ultimate.py  # daemon signal-only (fallback)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── render.yaml             # Render.com auto-deploy
