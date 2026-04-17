@@ -66,5 +66,11 @@
   "auto_trading_days_utc": [0, 1, 2, 3, 4],
   "auto_friday_cutoff_hour_utc": 15,
   "auto_monday_earliest_hour_utc": 7,
-  "position_check_interval": 60
+  "position_check_interval": 60,
+
+  "_safety_net_comment": "Safety net P0/P1 enhancements",
+  "auto_close_before_weekend": true,
+  "auto_friday_close_hour_utc": 16,
+  "use_consistency_tracker": true,
+  "consistency_threshold_pct": 45.0
 }

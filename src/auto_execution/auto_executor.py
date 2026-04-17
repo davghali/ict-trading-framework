@@ -168,6 +168,72 @@ class AutoExecutor:
         return None
 
     # ---------- Sizing ----------
+    def compute_lots_from_mt5(
+        self,
+        account_balance: float,
+        risk_pct: float,
+        entry: float,
+        stop_loss: float,
+        symbol: str,
+    ) -> float:
+        """
+        Calcule la taille en lots en utilisant les vraies specs MT5.
+        Respecte min_lot, max_lot, lot_step, tick_value du broker.
+        Fallback sur compute_lots (formule simplifiee) si MT5 indispo.
+        """
+        try:
+            import MetaTrader5 as mt5
+            from src.mt5_execution.executor import FTMO_SYMBOL_MAP
+            mt5_sym = FTMO_SYMBOL_MAP.get(symbol, symbol)
+            info = mt5.symbol_info(mt5_sym)
+            if info is None:
+                return self.compute_lots(account_balance, risk_pct, entry, stop_loss, symbol)
+
+            risk_amount = account_balance * (risk_pct / 100.0)
+            sl_distance_price = abs(entry - stop_loss)
+            if sl_distance_price <= 0:
+                return 0.0
+
+            # tick_value est la valeur en devise compte d'1 tick d'1 lot
+            tick_value = info.trade_tick_value
+            tick_size = info.trade_tick_size
+            if tick_size <= 0 or tick_value <= 0:
+                return self.compute_lots(account_balance, risk_pct, entry, stop_loss, symbol)
+
+            # loss per lot = (sl_distance_price / tick_size) * tick_value
+            loss_per_lot = (sl_distance_price / tick_size) * tick_value
+            if loss_per_lot <= 0:
+                return 0.0
+
+            lots = risk_amount / loss_per_lot
+
+            # Respecter min_lot, max_lot, lot_step
+            min_lot = info.volume_min
+            max_lot = info.volume_max
+            lot_step = info.volume_step
+
+            if lots < min_lot:
+                # Risque trop faible pour ce symbole
+                return 0.0
+            if lots > max_lot:
+                lots = max_lot
+
+            # Arrondi au multiple de lot_step
+            if lot_step > 0:
+                lots = round(lots / lot_step) * lot_step
+                # Encore verifier apres arrondi
+                if lots < min_lot:
+                    return 0.0
+                if lots > max_lot:
+                    lots = max_lot
+
+            # Cap de securite
+            lots = min(lots, 10.0)
+            return round(lots, 2)
+        except Exception as e:
+            log.warning(f"compute_lots_from_mt5 failed for {symbol}: {e} - using fallback")
+            return self.compute_lots(account_balance, risk_pct, entry, stop_loss, symbol)
+
     @staticmethod
     def compute_lots(
         account_balance: float,
@@ -264,13 +330,13 @@ class AutoExecutor:
         except Exception:
             pass
 
-        # Compute lots
-        lots = self.compute_lots(balance, risk_pct, entry, sl, symbol)
+        # Compute lots - prefer MT5-specific sizing if connected
+        lots = self.compute_lots_from_mt5(balance, risk_pct, entry, sl, symbol)
         if lots <= 0:
             return ExecutionResult(
                 success=False,
                 symbol=symbol,
-                skipped_reason="Invalid sizing (lots=0)",
+                skipped_reason="Invalid sizing (lots=0 or below min_lot)",
             )
 
         # Place order
@@ -326,6 +392,30 @@ class AutoExecutor:
                 closed += 1
                 log.warning(f"Closed ticket {p['ticket']} ({p['symbol']}) — reason: {reason}")
         return closed
+
+    def close_all_before_weekend(self, cutoff_hour_utc: int = 16) -> int:
+        """
+        Ferme toutes les positions si on est vendredi après cutoff_hour_utc.
+        À appeler périodiquement (toutes les 5-10 min le vendredi).
+        Retourne le nombre de positions fermées.
+        """
+        now_utc = datetime.now(timezone.utc)
+        # Vendredi = weekday 4
+        if now_utc.weekday() != 4:
+            return 0
+        if now_utc.hour < cutoff_hour_utc:
+            return 0
+        try:
+            positions = self.mt5.list_positions()
+        except Exception:
+            return 0
+        if not positions:
+            return 0
+        log.warning(
+            f"Weekend guard: closing {len(positions)} positions "
+            f"before weekend (friday {now_utc.hour}h UTC)"
+        )
+        return self.close_all(reason="weekend_guard")
 
     def summary(self) -> str:
         """Résumé de l'état pour Telegram."""

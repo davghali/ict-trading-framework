@@ -12,19 +12,24 @@ Pour chaque position gérée :
 """
 from __future__ import annotations
 
+import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from pathlib import Path
 from threading import Thread, Lock, Event
 from typing import Dict, List, Optional, Literal
 
 from src.utils.logging_conf import get_logger
 from src.exit_manager import ExitManager
 from src.exit_manager.manager import (
-    TradeState, ExitPlan, ExitAction, ExitOrder,
+    TradeState, ExitPlan, ExitLevel, ExitAction, ExitOrder,
 )
 
 log = get_logger(__name__)
+
+
+STATE_FILE = Path(__file__).parents[2] / "user_data" / "managed_positions_state.json"
 
 
 @dataclass
@@ -56,6 +61,7 @@ class PositionManager:
         exit_manager: Optional[ExitManager] = None,
         check_interval_seconds: int = 60,
         telegram_bot=None,
+        state_file: Optional[Path] = None,
     ):
         self.mt5 = mt5_executor
         self.exit_manager = exit_manager or ExitManager()
@@ -65,6 +71,92 @@ class PositionManager:
         self._lock = Lock()
         self._stop_event = Event()
         self._thread: Optional[Thread] = None
+        self.state_file = state_file or STATE_FILE
+        # Auto-load state from disk on init
+        self._load_state()
+
+    # ---------- State persistence ----------
+    def _save_state(self) -> None:
+        """Sauve l'état des positions managed sur disque (JSON)."""
+        try:
+            data = {}
+            for ticket, mp in self.managed.items():
+                data[str(ticket)] = {
+                    "ticket": mp.ticket,
+                    "symbol": mp.symbol,
+                    "side": mp.side,
+                    "entry": mp.entry,
+                    "sl_original": mp.sl_original,
+                    "sl_current": mp.sl_current,
+                    "tp": mp.tp,
+                    "lots_original": mp.lots_original,
+                    "lots_current": mp.lots_current,
+                    "r_unit": mp.r_unit,
+                    "created_at": mp.created_at.isoformat(),
+                    "last_atr": mp.last_atr,
+                    "closed": mp.closed,
+                    "telegram_notified": mp.telegram_notified,
+                    "exit_plan": {
+                        "runner_trailing_atr_mult": mp.exit_plan.runner_trailing_atr_mult,
+                        "runner_target_min_r": mp.exit_plan.runner_target_min_r,
+                        "runner_started": mp.exit_plan.runner_started,
+                        "levels": [
+                            {"at_r": l.at_r, "close_pct": l.close_pct,
+                             "move_sl_to": l.move_sl_to, "triggered": l.triggered}
+                            for l in mp.exit_plan.levels
+                        ],
+                    },
+                }
+            self.state_file.parent.mkdir(exist_ok=True)
+            self.state_file.write_text(
+                json.dumps(data, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            log.warning(f"State save failed: {e}")
+
+    def _load_state(self) -> None:
+        """Charge l'état depuis le disque au démarrage."""
+        if not self.state_file.exists():
+            return
+        try:
+            data = json.loads(self.state_file.read_text(encoding="utf-8"))
+            for ticket_str, d in data.items():
+                plan = ExitPlan(
+                    levels=[
+                        ExitLevel(
+                            at_r=lvl["at_r"],
+                            close_pct=lvl["close_pct"],
+                            move_sl_to=lvl["move_sl_to"],
+                            triggered=lvl.get("triggered", False),
+                        )
+                        for lvl in d["exit_plan"]["levels"]
+                    ],
+                    runner_trailing_atr_mult=d["exit_plan"]["runner_trailing_atr_mult"],
+                    runner_target_min_r=d["exit_plan"]["runner_target_min_r"],
+                    runner_started=d["exit_plan"].get("runner_started", False),
+                )
+                mp = ManagedPosition(
+                    ticket=d["ticket"],
+                    symbol=d["symbol"],
+                    side=d["side"],
+                    entry=d["entry"],
+                    sl_original=d["sl_original"],
+                    sl_current=d["sl_current"],
+                    tp=d["tp"],
+                    lots_original=d["lots_original"],
+                    lots_current=d["lots_current"],
+                    r_unit=d["r_unit"],
+                    exit_plan=plan,
+                    created_at=datetime.fromisoformat(d["created_at"]),
+                    last_atr=d.get("last_atr", 0.0),
+                    closed=d.get("closed", False),
+                    telegram_notified=d.get("telegram_notified", []),
+                )
+                self.managed[int(ticket_str)] = mp
+            log.info(f"State loaded: {len(self.managed)} positions restored from {self.state_file}")
+        except Exception as e:
+            log.warning(f"State load failed: {e}")
 
     def register(
         self,
@@ -100,12 +192,14 @@ class PositionManager:
         )
         with self._lock:
             self.managed[ticket] = mp
+        self._save_state()
         log.info(f"Position {ticket} registered: {symbol} {side} @ {entry} (r={r_unit:.5f})")
         return mp
 
     def unregister(self, ticket: int) -> None:
         with self._lock:
             self.managed.pop(ticket, None)
+        self._save_state()
 
     def _sync_with_mt5(self) -> None:
         """
@@ -168,6 +262,9 @@ class PositionManager:
 
         for order in orders:
             self._execute_exit_order(mp, order)
+        # Save state after any exit orders executed
+        if orders:
+            self._save_state()
 
     def _execute_exit_order(self, mp: ManagedPosition, order: ExitOrder) -> None:
         """Exécute un ordre d'exit sur MT5."""

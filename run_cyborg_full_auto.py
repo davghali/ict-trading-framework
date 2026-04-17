@@ -77,6 +77,19 @@ except Exception as e:
     AutoExecutionConfig = None
     PositionManager = None
 
+# Safety net modules (P1 enhancements)
+try:
+    from src.ftmo_guards import ConsistencyTracker
+except Exception:
+    ConsistencyTracker = None
+
+try:
+    from src.alerts_backup import EmailAlerter
+    from src.alerts_backup.multi_channel_alerter import MultiChannelAlerter
+except Exception:
+    EmailAlerter = None
+    MultiChannelAlerter = None
+
 
 log = get_logger(__name__)
 
@@ -281,6 +294,30 @@ def run():
     # Init Phase 1/2/3 modules
     modules = _init_modules(settings_dict)
 
+    # Init safety nets (P1 enhancements)
+    consistency = None
+    if ConsistencyTracker is not None and settings_dict.get("use_consistency_tracker", True):
+        try:
+            consistency = ConsistencyTracker(
+                threshold_pct=settings_dict.get("consistency_threshold_pct", 45.0)
+            )
+            log.info("[OK] ConsistencyTracker active")
+        except Exception as e:
+            log.error(f"ConsistencyTracker init failed: {e}")
+
+    email_alerter = None
+    multi_alerter = None
+    if EmailAlerter is not None:
+        try:
+            email_alerter = EmailAlerter()
+            multi_alerter = MultiChannelAlerter(telegram_bot=bot, email_alerter=email_alerter)
+            if email_alerter.enabled:
+                log.info("[OK] EmailAlerter active (fallback SMTP)")
+            else:
+                log.info("[INFO] EmailAlerter disabled (no SMTP creds in .env)")
+        except Exception as e:
+            log.error(f"EmailAlerter init failed: {e}")
+
     # Init auto-executor + position manager
     auto_exec, pos_mgr = _init_auto_executor(settings_dict, bot)
 
@@ -337,6 +374,25 @@ def run():
     while True:
         start = time.time()
         try:
+            # Weekend guard : ferme les positions vendredi 16h UTC
+            if auto_exec is not None and settings_dict.get("auto_close_before_weekend", True):
+                cutoff = settings_dict.get("auto_friday_close_hour_utc", 16)
+                try:
+                    closed = auto_exec.close_all_before_weekend(cutoff_hour_utc=cutoff)
+                    if closed > 0:
+                        bot.send_text(f"🗓 *Weekend guard*\n{closed} positions fermees avant weekend")
+                        if multi_alerter:
+                            multi_alerter.send_warn("Weekend close",
+                                f"{closed} positions closed before weekend cutoff ({cutoff}h UTC)")
+                except Exception as wg_e:
+                    log.error(f"Weekend guard error: {wg_e}")
+
+            # Consistency check FTMO
+            if consistency:
+                status = consistency.get_status()
+                if not status.allowed:
+                    log.warning(f"[FTMO CONSISTENCY] {status.reason}")
+
             log.info(f"====== Full Auto scan @ {datetime.utcnow():%H:%M:%S} ======")
             raw_signals = scanner.scan_once()
 
@@ -415,6 +471,13 @@ def run():
                     bot.send_signal_with_buttons(sig, enhanced=enh)
                     new_count += 1
 
+                    # Consistency guard (FTMO)
+                    if consistency:
+                        c_status = consistency.get_status()
+                        if not c_status.allowed:
+                            log.warning(f"[CONSISTENCY BLOCK] {sig.symbol}: {c_status.reason}")
+                            continue
+
                     # AUTO-EXECUTION
                     if auto_exec is not None:
                         signal_dict = {
@@ -481,6 +544,14 @@ def run():
 
         except Exception as e:
             log.error(f"Scan error: {type(e).__name__}: {e}", exc_info=True)
+            if multi_alerter:
+                try:
+                    multi_alerter.send_critical(
+                        "Scan loop error",
+                        f"{type(e).__name__}: {e}\n\nLe bot continue, mais verifier les logs AWS."
+                    )
+                except Exception:
+                    pass
 
         elapsed = time.time() - start
         sleep_for = max(60, SCAN_INTERVAL_MIN * 60 - elapsed)

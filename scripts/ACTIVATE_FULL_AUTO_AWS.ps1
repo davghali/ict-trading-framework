@@ -140,6 +140,16 @@ if ($procs) {
 }
 
 
+Step "Step 6/5 - Install Safety Net (MT5 watchdog + news refresh + weekly report)"
+$safetyScript = Join-Path $FRAMEWORK_DIR "scripts\INSTALL_SAFETY_NET.ps1"
+if (Test-Path $safetyScript) {
+    & $safetyScript
+    OK "Safety net installed"
+} else {
+    WARN "Safety net script not found (git pull may be needed)"
+}
+
+
 Step "FULL AUTO ACTIVATED"
 
 Write-Host ""
