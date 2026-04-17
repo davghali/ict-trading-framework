@@ -154,7 +154,8 @@ if (-not (Test-Path $scriptPath)) {
     exit 1
 }
 
-$pyCheck = python -c "import ast; ast.parse(open('run_cyborg_ultimate.py').read()); print('OK')" 2>&1
+$env:PYTHONIOENCODING = "utf-8"
+$pyCheck = python -c "import ast; ast.parse(open('run_cyborg_ultimate.py', encoding='utf-8').read()); print('OK')" 2>&1
 if ($pyCheck -match "OK") {
     OK "run_cyborg_ultimate.py syntax valid"
 } else {
