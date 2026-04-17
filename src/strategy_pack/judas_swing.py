@@ -34,6 +34,7 @@ class JudasSwingSetup:
     stop_loss: float
     take_profit: float
     session: str            # "london" ou "ny"
+    rr: float = 0.0
 
 
 class JudasSwingStrategy:
@@ -103,7 +104,7 @@ class JudasSwingStrategy:
                     symbol=symbol, side=side,
                     judas_high=session_high, judas_low=session_low,
                     entry=entry, stop_loss=sl, take_profit=tp,
-                    session=session_name,
+                    session=session_name, rr=rr,
                 ))
 
         log.info(f"Judas Swing {symbol}: {len(setups)} setups found")

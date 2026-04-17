@@ -1,0 +1,61 @@
+version: "3.9"
+
+# ICT CYBORG — stack complète pour déploiement cloud/VPS.
+# Services : cyborg daemon + supervisor + dashboard
+# Usage : docker-compose -f docker-compose.cyborg.yml up -d
+
+services:
+  cyborg:
+    build: .
+    image: ict-cyborg:latest
+    container_name: ict_cyborg_daemon
+    command: python run_cyborg.py
+    volumes:
+      - ./data:/app/data
+      - ./user_data:/app/user_data
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/reports/logs/cyborg.log"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+
+  supervisor:
+    build: .
+    image: ict-cyborg:latest
+    container_name: ict_supervisor
+    command: python run_supervisor.py
+    volumes:
+      - ./data:/app/data
+      - ./user_data:/app/user_data
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - cyborg
+
+  dashboard:
+    build: .
+    image: ict-cyborg:latest
+    container_name: ict_dashboard
+    ports:
+      - "8501:8501"
+    command: >
+      python -m streamlit run dashboard.py
+      --server.address=0.0.0.0
+      --server.port=8501
+      --server.headless=true
+      --browser.gatherUsageStats=false
+    volumes:
+      - ./data:/app/data
+      - ./user_data:/app/user_data
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
