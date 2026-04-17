@@ -1,256 +1,242 @@
-# =============================================================================
-# ACTIVATE ULTIMATE — Script PowerShell ONE-CLICK pour AWS Windows
-# =============================================================================
-# Usage :
-#   1. RDP sur AWS Windows
-#   2. Ouvrir PowerShell ADMIN
-#   3. cd C:\Users\Administrator\ict-trading-framework\scripts
-#   4. .\ACTIVATE_ULTIMATE_AWS.ps1
-#
-# Ce script fait TOUT automatiquement :
-# - git pull
-# - backup settings.json actuel
-# - migration vers settings.json avec les nouvelles options
-# - test 60 sec du daemon ultimate
-# - bascule Scheduled Task
-# - restart
-# - vérification finale
-# =============================================================================
+# ============================================================
+# ACTIVATE ULTIMATE - One-click deployment for ICT Cyborg
+# ============================================================
+# Usage:
+#   cd C:\Users\Administrator\ict-trading-framework
+#   git pull origin main
+#   cd scripts
+#   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+#   .\ACTIVATE_ULTIMATE_AWS.ps1
+# ============================================================
 
 $ErrorActionPreference = "Continue"
 $FRAMEWORK_DIR = "C:\Users\Administrator\ict-trading-framework"
+$TASK_NAME = "ICTCyborg"
 
-function Log-Step {
-    param([string]$Msg, [string]$Color = "Cyan")
+function Step($msg) {
     Write-Host ""
-    Write-Host "================================================================" -ForegroundColor $Color
-    Write-Host "  $Msg" -ForegroundColor $Color
-    Write-Host "================================================================" -ForegroundColor $Color
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  $msg" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
 }
+function OK($msg) { Write-Host "  [OK] $msg" -ForegroundColor Green }
+function WARN($msg) { Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
+function ERR($msg) { Write-Host "  [ERROR] $msg" -ForegroundColor Red }
 
-function Log-OK { param($M); Write-Host "  [OK] $M" -ForegroundColor Green }
-function Log-Warn { param($M); Write-Host "  [WARN] $M" -ForegroundColor Yellow }
-function Log-Err { param($M); Write-Host "  [ERR] $M" -ForegroundColor Red }
 
-# =============================================================================
-Log-Step "ICT CYBORG ULTIMATE — Activation AWS"
-# =============================================================================
+# ============================================================
+Step "ICT CYBORG ULTIMATE - AWS Activation"
+# ============================================================
 
 if (-not (Test-Path $FRAMEWORK_DIR)) {
-    Log-Err "Repo introuvable : $FRAMEWORK_DIR"
+    ERR "Framework dir not found: $FRAMEWORK_DIR"
     exit 1
 }
+Set-Location $FRAMEWORK_DIR
+OK "Framework dir: $FRAMEWORK_DIR"
 
-cd $FRAMEWORK_DIR
-Log-OK "Repo trouvé : $FRAMEWORK_DIR"
 
-# =============================================================================
-Log-Step "ÉTAPE 1/6 : Git pull"
-# =============================================================================
+# ============================================================
+Step "Step 1/5 - Git pull"
+# ============================================================
 
-$currentCommit = git rev-parse HEAD
-Log-OK "Commit actuel : $($currentCommit.Substring(0,8))"
+$currentCommit = git rev-parse HEAD 2>&1
+OK "Current commit: $($currentCommit.Substring(0, 8))"
 
 git pull origin main 2>&1 | ForEach-Object { Write-Host "  $_" }
 
-$newCommit = git rev-parse HEAD
+$newCommit = git rev-parse HEAD 2>&1
 if ($newCommit -eq $currentCommit) {
-    Log-Warn "Déjà à jour (aucun nouveau commit)"
+    WARN "Already up to date"
 } else {
-    Log-OK "Mis à jour : $($currentCommit.Substring(0,8)) → $($newCommit.Substring(0,8))"
+    OK "Updated to: $($newCommit.Substring(0, 8))"
 }
 
-# =============================================================================
-Log-Step "ÉTAPE 2/6 : Backup + migration settings.json"
-# =============================================================================
 
-$settingsPath = "$FRAMEWORK_DIR\user_data\settings.json"
-$examplePath = "$FRAMEWORK_DIR\user_data\settings.json.example"
-$backupPath = "$FRAMEWORK_DIR\user_data\settings.backup.$(Get-Date -Format yyyyMMdd_HHmmss).json"
+# ============================================================
+Step "Step 2/5 - Settings.json migration"
+# ============================================================
+
+$settingsPath = Join-Path $FRAMEWORK_DIR "user_data\settings.json"
+$examplePath = Join-Path $FRAMEWORK_DIR "user_data\settings.json.example"
+
+if (-not (Test-Path $examplePath)) {
+    ERR "settings.json.example not found - git pull may have failed"
+    exit 1
+}
 
 if (Test-Path $settingsPath) {
+    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupPath = Join-Path $FRAMEWORK_DIR "user_data\settings.backup.$stamp.json"
     Copy-Item $settingsPath $backupPath
-    Log-OK "Backup créé : $backupPath"
+    OK "Backup created: settings.backup.$stamp.json"
 
-    # Merge : on garde les valeurs actuelles MAIS on ajoute les nouveaux champs de l'example
-    $current = Get-Content $settingsPath | ConvertFrom-Json
-    $template = Get-Content $examplePath | ConvertFrom-Json
+    try {
+        $current = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        $template = Get-Content $examplePath -Raw | ConvertFrom-Json
+    } catch {
+        ERR "JSON parse failed, overwriting with template"
+        Copy-Item $examplePath $settingsPath -Force
+        OK "Fresh settings.json from template"
+        $current = $null
+    }
 
-    # Liste des nouvelles clés Phase 1/2/3
-    $newKeys = @(
-        "use_multi_partial_exits", "partial_exit_levels",
-        "runner_trailing_atr_mult", "runner_target_min_r",
-        "use_confluence_filter", "confluence_min_score",
-        "confluence_require_smt", "confluence_require_multi_tf",
-        "use_dynamic_risk", "dynamic_risk_base", "dynamic_risk_max", "dynamic_risk_min",
-        "dynamic_risk_hot_streak_boost", "dynamic_risk_cold_streak_penalty",
-        "use_news_ride", "news_ride_wait_minutes", "news_ride_retracement_pct",
-        "news_ride_risk_multiplier",
-        "use_pyramid", "pyramid_max_adds", "pyramid_add_at_r", "pyramid_add_risk_pct",
-        "ml_retrain_frequency", "ml_use_regime_detection",
-        "min_grade_sniper"
-    )
+    if ($current -ne $null) {
+        $newKeys = @(
+            "use_multi_partial_exits",
+            "partial_exit_levels",
+            "runner_trailing_atr_mult",
+            "runner_target_min_r",
+            "use_confluence_filter",
+            "confluence_min_score",
+            "confluence_require_smt",
+            "confluence_require_multi_tf",
+            "use_dynamic_risk",
+            "dynamic_risk_base",
+            "dynamic_risk_max",
+            "dynamic_risk_min",
+            "dynamic_risk_hot_streak_boost",
+            "dynamic_risk_cold_streak_penalty",
+            "use_news_ride",
+            "news_ride_wait_minutes",
+            "news_ride_retracement_pct",
+            "news_ride_risk_multiplier",
+            "use_pyramid",
+            "pyramid_max_adds",
+            "pyramid_add_at_r",
+            "pyramid_add_risk_pct",
+            "ml_retrain_frequency",
+            "ml_use_regime_detection",
+            "min_grade_sniper"
+        )
 
-    # Ajouter les clés manquantes
-    foreach ($key in $newKeys) {
-        if (-not $current.PSObject.Properties.Name.Contains($key)) {
-            $value = $template.$key
-            $current | Add-Member -NotePropertyName $key -NotePropertyValue $value
-            Log-OK "Ajouté : $key"
+        $added = 0
+        foreach ($key in $newKeys) {
+            $has = $false
+            foreach ($prop in $current.PSObject.Properties) {
+                if ($prop.Name -eq $key) { $has = $true; break }
+            }
+            if (-not $has) {
+                $value = $template.$key
+                $current | Add-Member -NotePropertyName $key -NotePropertyValue $value -Force
+                $added++
+            }
         }
-    }
+        OK "Added $added new Phase 1/2/3 keys to settings.json"
 
-    # Étendre les instruments si besoin (sans écraser si utilisateur a custom)
-    if ($current.assets_h1.Count -lt 9) {
-        $current.assets_h1 = $template.assets_h1
-        Log-OK "Instruments H1 étendus à $($template.assets_h1.Count)"
-    }
-    if ($current.assets_d1.Count -lt 10) {
-        $current.assets_d1 = $template.assets_d1
-        Log-OK "Instruments D1 étendus à $($template.assets_d1.Count)"
-    }
+        if ($current.assets_h1.Count -lt 9) {
+            $current.assets_h1 = $template.assets_h1
+            OK "Extended assets_h1 to $($template.assets_h1.Count)"
+        }
+        if ($current.assets_d1.Count -lt 10) {
+            $current.assets_d1 = $template.assets_d1
+            OK "Extended assets_d1 to $($template.assets_d1.Count)"
+        }
 
-    # Sauvegarde (sans BOM)
-    $json = $current | ConvertTo-Json -Depth 10
-    [System.IO.File]::WriteAllText($settingsPath, $json)
-    Log-OK "settings.json mis à jour (sans BOM)"
-
+        $json = $current | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($settingsPath, $json)
+        OK "settings.json saved (no BOM)"
+    }
 } else {
-    Log-Warn "settings.json absent — copie depuis example"
+    WARN "settings.json missing, copying from template"
     Copy-Item $examplePath $settingsPath
-    Log-OK "settings.json créé depuis template"
+    OK "settings.json created"
 }
 
-# =============================================================================
-Log-Step "ÉTAPE 3/6 : Verification .env et credentials"
-# =============================================================================
 
-$envPath = "$FRAMEWORK_DIR\user_data\.env"
-$accountsPath = "$FRAMEWORK_DIR\user_data\mt5_accounts.json"
+# ============================================================
+Step "Step 3/5 - Syntax check"
+# ============================================================
 
-if (-not (Test-Path $envPath)) {
-    Log-Err ".env manquant — Telegram ne pourra pas envoyer d'alertes !"
-    Log-Warn "Créer manuellement $envPath avec TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID"
-} else {
-    Log-OK ".env présent"
-}
-
-if (-not (Test-Path $accountsPath)) {
-    Log-Warn "mt5_accounts.json manquant — le bot ne tradera pas (mais scannera)"
-    Log-Warn "Copier mt5_accounts.json.example et remplir les credentials"
-} else {
-    Log-OK "mt5_accounts.json présent"
-}
-
-# =============================================================================
-Log-Step "ÉTAPE 4/6 : Test syntaxique run_cyborg_ultimate.py"
-# =============================================================================
-
-$testResult = python -c "import ast; ast.parse(open('run_cyborg_ultimate.py').read()); print('OK')" 2>&1
-if ($testResult -eq "OK") {
-    Log-OK "Syntaxe run_cyborg_ultimate.py : OK"
-} else {
-    Log-Err "Erreur syntaxe : $testResult"
+$scriptPath = Join-Path $FRAMEWORK_DIR "run_cyborg_ultimate.py"
+if (-not (Test-Path $scriptPath)) {
+    ERR "run_cyborg_ultimate.py not found - git pull failed"
     exit 1
 }
 
-# Test imports
-Log-Warn "Test imports modules (5 sec)..."
-$importTest = python -c @"
-import sys
-sys.path.insert(0, '.')
-from src.exit_manager import ExitManager
-from src.confluence_filter import ConfluenceFilter
-from src.dynamic_risk import DynamicRiskManager
-from src.news_ride import NewsRideModule
-from src.pyramid_manager import PyramidManager
-print('ALL_MODULES_OK')
-"@ 2>&1
-
-if ($importTest -match "ALL_MODULES_OK") {
-    Log-OK "Tous les modules Phase 1/2/3 importables"
+$pyCheck = python -c "import ast; ast.parse(open('run_cyborg_ultimate.py').read()); print('OK')" 2>&1
+if ($pyCheck -match "OK") {
+    OK "run_cyborg_ultimate.py syntax valid"
 } else {
-    Log-Err "Erreur import : $importTest"
+    ERR "Syntax error: $pyCheck"
     exit 1
 }
 
-# =============================================================================
-Log-Step "ÉTAPE 5/6 : Bascule Scheduled Task"
-# =============================================================================
 
-$taskName = "ICTCyborg"
-$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+# ============================================================
+Step "Step 4/5 - Switch Scheduled Task"
+# ============================================================
 
-if ($existingTask) {
-    Log-OK "Task '$taskName' trouvée"
-
-    # Stop
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    Log-OK "Task arrêtée"
-    Start-Sleep 3
-
-    # New action pointing to ultimate
-    $pythonPath = (Get-Command python.exe).Source
-    $scriptPath = "$FRAMEWORK_DIR\run_cyborg_ultimate.py"
-    $action = New-ScheduledTaskAction `
-        -Execute $pythonPath `
-        -Argument "`"$scriptPath`"" `
-        -WorkingDirectory $FRAMEWORK_DIR
-
-    Set-ScheduledTask -TaskName $taskName -Action $action
-    Log-OK "Task reconfigurée pour run_cyborg_ultimate.py"
-
-    # Restart
-    Start-ScheduledTask -TaskName $taskName
-    Log-OK "Task redémarrée"
-    Start-Sleep 5
-
-    # Vérifier état
-    $info = Get-ScheduledTaskInfo -TaskName $taskName
-    Log-OK "LastRunTime : $($info.LastRunTime)"
-    Log-OK "LastResult : $($info.LastTaskResult) (0 = OK)"
-
-} else {
-    Log-Err "Task '$taskName' introuvable !"
-    Log-Warn "Créer manuellement ou lancer scripts/install_scheduled_task.ps1"
+$task = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+if (-not $task) {
+    ERR "Scheduled Task '$TASK_NAME' not found"
+    WARN "Create it manually or run install_autostart.sh"
+    exit 1
 }
+OK "Task '$TASK_NAME' found"
 
-# =============================================================================
-Log-Step "ÉTAPE 6/6 : Vérification finale"
-# =============================================================================
+Stop-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+OK "Task stopped"
+Start-Sleep -Seconds 3
 
-Start-Sleep 10
+$pythonPath = (Get-Command python.exe).Source
+$action = New-ScheduledTaskAction `
+    -Execute $pythonPath `
+    -Argument "`"$scriptPath`"" `
+    -WorkingDirectory $FRAMEWORK_DIR
 
-$pythonProcs = Get-Process python -ErrorAction SilentlyContinue
-if ($pythonProcs) {
-    Log-OK "Processus Python actifs : $($pythonProcs.Count)"
-    $pythonProcs | ForEach-Object {
-        Log-OK "  PID $($_.Id) — CPU $([math]::Round($_.CPU,1))s — Mem $([math]::Round($_.WorkingSet/1MB,0))MB"
+Set-ScheduledTask -TaskName $TASK_NAME -Action $action
+OK "Task action updated to run_cyborg_ultimate.py"
+
+Start-ScheduledTask -TaskName $TASK_NAME
+OK "Task started"
+Start-Sleep -Seconds 5
+
+$info = Get-ScheduledTaskInfo -TaskName $TASK_NAME
+OK "LastRunTime: $($info.LastRunTime)"
+OK "LastResult: $($info.LastTaskResult) (0 = success)"
+
+
+# ============================================================
+Step "Step 5/5 - Verification"
+# ============================================================
+
+Start-Sleep -Seconds 8
+
+$procs = Get-Process python -ErrorAction SilentlyContinue
+if ($procs) {
+    OK "Python processes running: $($procs.Count)"
+    foreach ($p in $procs) {
+        $mem = [math]::Round($p.WorkingSet / 1MB, 0)
+        OK "  PID $($p.Id)  Mem $($mem)MB"
     }
 } else {
-    Log-Warn "Aucun processus Python — vérifier les logs"
+    WARN "No Python process found"
 }
 
-$logFile = "$FRAMEWORK_DIR\cyborg.log"
-if (Test-Path $logFile) {
-    Log-OK "Dernières lignes du log :"
-    Get-Content $logFile -Tail 10 | ForEach-Object { Write-Host "    $_" }
+$logPath = Join-Path $FRAMEWORK_DIR "cyborg.log"
+$altLogPath = Join-Path $FRAMEWORK_DIR "reports\logs\cyborg.log"
+if (Test-Path $logPath) {
+    OK "Recent log lines:"
+    Get-Content $logPath -Tail 8 | ForEach-Object { Write-Host "    $_" }
+} elseif (Test-Path $altLogPath) {
+    OK "Recent log lines (reports/logs):"
+    Get-Content $altLogPath -Tail 8 | ForEach-Object { Write-Host "    $_" }
+} else {
+    WARN "Log file not found yet (wait 60 sec for first scan)"
 }
 
-# =============================================================================
-Log-Step "ACTIVATION TERMINÉE" "Green"
-# =============================================================================
+
+# ============================================================
+Step "DONE - Ultimate activated"
+# ============================================================
 
 Write-Host ""
-Write-Host "  ✅ Code Ultimate déployé sur AWS" -ForegroundColor Green
-Write-Host "  ✅ settings.json migré (backup conservé)" -ForegroundColor Green
-Write-Host "  ✅ Scheduled Task bascule vers run_cyborg_ultimate.py" -ForegroundColor Green
+Write-Host "  Next steps:" -ForegroundColor Green
+Write-Host "  1. Check Telegram within 60 sec for: ICT CYBORG ULTIMATE" -ForegroundColor Green
+Write-Host "  2. Dashboard: https://ict-quant-david.streamlit.app" -ForegroundColor Green
+Write-Host "  3. Monitor 24h - logs should show signal scans" -ForegroundColor Green
 Write-Host ""
-Write-Host "  📱 Vérifie Telegram dans 60 sec pour le message '🔴 ICT CYBORG ULTIMATE'" -ForegroundColor Cyan
-Write-Host "  🌐 Dashboard : https://ict-quant-david.streamlit.app" -ForegroundColor Cyan
-Write-Host "  📊 UptimeRobot te notifie en cas de crash" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Pour rollback d'urgence :" -ForegroundColor Yellow
-Write-Host "    Stop-ScheduledTask -TaskName ICTCyborg" -ForegroundColor Yellow
-Write-Host "    (puis éditer l'action pour repointer run_cyborg.py)" -ForegroundColor Yellow
+Write-Host "  Rollback if needed:" -ForegroundColor Yellow
+Write-Host "  .\ROLLBACK_AWS.ps1" -ForegroundColor Yellow
 Write-Host ""
