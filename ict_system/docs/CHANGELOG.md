@@ -5,6 +5,50 @@ Versions follow `v{phase}.{step}-{iteration}` scheme (e.g., `vA.1-1` = Phase A, 
 
 ---
 
+## [vA.2-a-1] — 2026-04-21
+
+### Added
+- **[A.2.a.1] Time helpers** : `hr_ny`, `mn_ny`, `dow_ny`, `is_midnight_ny`, `is_sunday_17_ny`, `is_monday_00_ny`
+- **[A.2.a.2] Opens** (§ 3.2) :
+  - `midnight_open` / `tdo` via `request.security("D")` — Daily Open in ICT parlance
+  - `weekly_open` via `request.security("W")` — broker-default weekly session
+  - Horizontal lines drawn with `extend.right`, repainted only when new period starts
+  - Works on ANY timeframe (M1 to W) — broker-independent
+- **[A.2.a.3] Killzones backgrounds** (§ 3.7) :
+  - `in_asia`, `in_london`, `in_ny_am`, `in_ny_lunch`, `in_ny_pm` booleans
+  - `current_kz` text for HUD
+  - `bgcolor()` painting for each KZ (user-controllable via `show_kz_bg`)
+- **[A.2.a.4] Swing points** :
+  - `ta.pivothigh` / `ta.pivotlow` with `swing_lookback = 10` (per spec § 7.3)
+  - Accept natural pivot delay (no tricks, no repaint)
+  - Labels "H" / "L" drawn at each confirmed swing
+  - `last_sh`, `last_sl`, `last_sh_bar`, `last_sl_bar` tracked
+- **[A.2.a.5] Power of Three (PO3)** (§ 3.1) :
+  - Previous DAILY candle retrospective analysis : `po3_daily_prev_dir` in {bull, bear, neutral}
+  - Previous WEEKLY candle retrospective analysis : `po3_weekly_prev_dir`
+  - Current phase based on NY hour : `po3_current_phase` in {accum, manip, distrib, close}
+  - Classification rule : lower wick 1.5x upper wick + body > 40% range = bullish PO3
+
+### Updated
+- **HUD Dashboard** : now shows Midnight Open, Weekly Open, PO3 Prev Day/Week, Current Phase, KZ Active, Last Swing H/L
+- **Header comment** : roadmap reflects A.2.a completion
+
+### Decisions
+- **Inline implementation** (not in libraries) : rationale = faster iteration. Libraries to be populated in Phase B.1 when we need indicator + strategy parity
+- **Open detection via `request.security`** : more robust than hour/minute checks (works on Daily/Weekly charts where hour is always 0)
+- **Weekly session** : uses broker default (Sunday 17:00 NY on OANDA). `weekly_open_mode` input is currently documentation-only
+- **PO3 classification thresholds** : 1.5x wick ratio + 40% body ratio — standard ICT interpretation, tune-able if backtest shows issue
+- **Swing lookback** : 10 bars fixed for now — will become input if needed in A.3 bias engine
+
+### Next (A.2.b)
+- FVG detection (bull + bear), with zone rendering + mitigation tracking
+- IFVG (Inverted FVG) — FVG closed through by body
+- BPR (Balanced Price Range) — overlap of bull + bear FVG
+- Order Block (STRICT : sweep + FVG + BOS all required)
+- Breaker Block (invalidated OB post-CHoCH)
+
+---
+
 ## [vA.1-1] — 2026-04-21
 
 ### Added

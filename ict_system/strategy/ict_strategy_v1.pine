@@ -9,8 +9,12 @@
 // ║   Spec    : PROMPT_ULTIME_ICT_TRADINGVIEW.md                             ║
 // ║                                                                          ║
 // ║   PHASE ROADMAP :                                                        ║
-// ║     A.1  Skeleton + Inputs ........... ← YOU ARE HERE                    ║
-// ║     A.2  ICT core detection libs                                         ║
+// ║     A.1   Skeleton + Inputs                  ✅ DONE                      ║
+// ║     A.2.a Opens + KZ viz + Swings + PO3      ✅ DONE ← YOU ARE HERE       ║
+// ║     A.2.b PD Arrays (FVG/IFVG/BPR/OB/BB)     🔜 NEXT                      ║
+// ║     A.2.c Structure (BOS/CHoCH/CISD/MSS)                                  ║
+// ║     A.2.d Liquidity (PDH-PDL-PWH-PWL-PMH-PML + EQH/EQL + KZ H/L)          ║
+// ║     A.2.e P/D/E zones + HUD dashboard                                     ║
 // ║     A.3  Daily / Weekly bias engine                                      ║
 // ║     A.4  Continuation setup logic                                        ║
 // ║     A.5  Reversal setup logic                                            ║
@@ -327,22 +331,179 @@ webhook_url_hint = input.string("", "Webhook URL (reminder only)",
 // ║                                                                          ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  [A.2.a] ICT CORE DETECTIONS — Opens, Killzones, Swings, Power of Three ║
+// ║  Status : IMPLEMENTED ✅                                                  ║
+// ║  Next   : A.2.b PD Arrays (FVG / IFVG / BPR / OB / BB)                   ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 // ═══════════════════════════════════════════════════════════════════════════
-// [A.2] ICT CORE DETECTIONS  (PO3, Opens, FVG, OB, BB, IFVG, BPR)
+// [A.2.a.1] TIME HELPERS  (NY timezone anchors)
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// To be implemented :
-//   f_po3_daily()                → [phase, direction]
-//   f_po3_weekly(open_mode)      → [phase, direction]
-//   f_midnight_open()            → float
-//   f_weekly_open(open_mode)     → float
-//   f_true_day_open()            → float
-//   f_detect_fvg_bull()          → bool
-//   f_detect_fvg_bear()          → bool
-//   f_detect_ifvg(mitigated_fvg) → bool
-//   f_detect_bpr()               → bool
-//   f_detect_ob(swept, fvg_ok, bos_ok) → bool
-//   f_detect_bb(broken_ob)       → bool
+hr_ny   = hour(time, kz_timezone)
+mn_ny   = minute(time, kz_timezone)
+dow_ny  = dayofweek(time, kz_timezone)
+
+is_midnight_ny   = (hr_ny == 0 and mn_ny == 0)
+is_sunday_17_ny  = (dow_ny == dayofweek.sunday and hr_ny == 17 and mn_ny == 0)
+is_monday_00_ny  = (dow_ny == dayofweek.monday and hr_ny == 0  and mn_ny == 0)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.a.2] OPENS  (§ 3.2 — Midnight / Weekly / True Day)
+// ═══════════════════════════════════════════════════════════════════════════
+// Uses request.security to get the Daily and Weekly OPEN values directly.
+// This works on ANY timeframe (M1 to W) — broker-independent.
+// Note : Weekly session uses broker default (OANDA = Sunday 17:00 NY).
+// The weekly_open_mode input is documentation-only for Phase A.2.a.
+
+daily_open_ref  = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+weekly_open_ref = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
+
+// Detect new period start (open value changes)
+new_day_start  = ta.change(daily_open_ref)  != 0
+new_week_start = ta.change(weekly_open_ref) != 0
+
+// Live tracking of current period's open
+var float midnight_open = na
+var float weekly_open   = na
+var float tdo           = na
+
+if new_day_start
+    midnight_open := daily_open_ref
+    tdo           := daily_open_ref   // True Day Open = Midnight NY per spec § 3.2
+
+if new_week_start
+    weekly_open := weekly_open_ref
+
+// Draw horizontal lines that extend right until next period reset
+var line midnight_line = na
+var line weekly_line   = na
+
+if new_day_start and barstate.isconfirmed
+    line.delete(midnight_line)
+    midnight_line := line.new(
+         bar_index, daily_open_ref, bar_index + 1, daily_open_ref,
+         color  = col_neutral,
+         style  = line.style_dotted,
+         width  = 1,
+         extend = extend.right)
+
+if new_week_start and barstate.isconfirmed
+    line.delete(weekly_line)
+    weekly_line := line.new(
+         bar_index, weekly_open_ref, bar_index + 1, weekly_open_ref,
+         color  = col_bull,
+         style  = line.style_solid,
+         width  = 2,
+         extend = extend.right)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.a.3] KILLZONES BACKGROUNDS  (§ 3.7)
+// ═══════════════════════════════════════════════════════════════════════════
+
+in_asia     = not na(time(timeframe.period, kz_asia_session, kz_timezone))
+in_london   = not na(time(timeframe.period, kz_london_session, kz_timezone))
+in_ny_am    = not na(time(timeframe.period, kz_ny_am_session, kz_timezone))
+in_ny_lunch = not na(time(timeframe.period, kz_ny_lunch_session, kz_timezone))
+in_ny_pm    = not na(time(timeframe.period, kz_ny_pm_session, kz_timezone))
+
+in_any_kz = in_asia or in_london or in_ny_am or in_ny_pm
+current_kz = in_ny_lunch ? "NY Lunch (NO TRADE)" : in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : in_ny_pm ? "NY PM" : "Out of KZ"
+
+bgcolor(show_kz_bg and in_asia    ? col_kz_asia   : na, title = "Asia KZ BG")
+bgcolor(show_kz_bg and in_london  ? col_kz_london : na, title = "London KZ BG")
+bgcolor(show_kz_bg and in_ny_am   ? col_kz_ny_am  : na, title = "NY AM KZ BG")
+bgcolor(show_kz_bg and in_ny_pm   ? col_kz_ny_pm  : na, title = "NY PM KZ BG")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.a.4] SWING POINTS  (foundation for BOS / CHoCH / PD zones)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Swing lookback — per spec § 7.3, accept natural pivot delay (no tricks)
+swing_lookback = 10
+
+swing_h = ta.pivothigh(high, swing_lookback, swing_lookback)
+swing_l = ta.pivotlow(low,   swing_lookback, swing_lookback)
+
+var float last_sh       = na
+var float last_sl       = na
+var int   last_sh_bar   = na
+var int   last_sl_bar   = na
+
+if not na(swing_h)
+    last_sh     := swing_h
+    last_sh_bar := bar_index - swing_lookback
+    if show_labels
+        label.new(
+             bar_index - swing_lookback, swing_h,
+             "H",
+             style     = label.style_label_down,
+             color     = color.new(col_bear, 60),
+             textcolor = color.white,
+             size      = size.tiny,
+             yloc      = yloc.abovebar)
+
+if not na(swing_l)
+    last_sl     := swing_l
+    last_sl_bar := bar_index - swing_lookback
+    if show_labels
+        label.new(
+             bar_index - swing_lookback, swing_l,
+             "L",
+             style     = label.style_label_up,
+             color     = color.new(col_bull, 60),
+             textcolor = color.white,
+             size      = size.tiny,
+             yloc      = yloc.belowbar)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.a.5] POWER OF THREE (PO3)  (§ 3.1)
+// ═══════════════════════════════════════════════════════════════════════════
+// Daily / Weekly candle decomposition : Accumulation → Manipulation → Distribution
+// Retrospective on PREVIOUS candle + phase of CURRENT candle via NY hour
+
+// ──── Previous DAILY PO3 (retrospective) ────
+[d_prev_o, d_prev_h, d_prev_l, d_prev_c] = request.security(
+     syminfo.tickerid,
+     "D",
+     [open[1], high[1], low[1], close[1]],
+     lookahead = barmerge.lookahead_off)
+
+d_range       = d_prev_h - d_prev_l
+d_body        = math.abs(d_prev_c - d_prev_o)
+d_upper_wick  = d_prev_h - math.max(d_prev_o, d_prev_c)
+d_lower_wick  = math.min(d_prev_o, d_prev_c) - d_prev_l
+
+// Bullish PO3 : close > open, lower wick 1.5x upper wick, body > 40% of range
+po3_daily_prev_bull = use_po3_daily and d_prev_c > d_prev_o and d_lower_wick > d_upper_wick * 1.5 and d_body > d_range * 0.4
+
+// Bearish PO3 : close < open, upper wick 1.5x lower wick, body > 40% of range
+po3_daily_prev_bear = use_po3_daily and d_prev_c < d_prev_o and d_upper_wick > d_lower_wick * 1.5 and d_body > d_range * 0.4
+
+po3_daily_prev_dir = po3_daily_prev_bull ? "bull" : po3_daily_prev_bear ? "bear" : "neutral"
+
+// ──── Previous WEEKLY PO3 (retrospective) ────
+[w_prev_o, w_prev_h, w_prev_l, w_prev_c] = request.security(
+     syminfo.tickerid,
+     "W",
+     [open[1], high[1], low[1], close[1]],
+     lookahead = barmerge.lookahead_off)
+
+w_range       = w_prev_h - w_prev_l
+w_body        = math.abs(w_prev_c - w_prev_o)
+w_upper_wick  = w_prev_h - math.max(w_prev_o, w_prev_c)
+w_lower_wick  = math.min(w_prev_o, w_prev_c) - w_prev_l
+
+po3_weekly_prev_bull = use_po3_weekly and w_prev_c > w_prev_o and w_lower_wick > w_upper_wick * 1.5 and w_body > w_range * 0.4
+po3_weekly_prev_bear = use_po3_weekly and w_prev_c < w_prev_o and w_upper_wick > w_lower_wick * 1.5 and w_body > w_range * 0.4
+
+po3_weekly_prev_dir = po3_weekly_prev_bull ? "bull" : po3_weekly_prev_bear ? "bear" : "neutral"
+
+// ──── Current PO3 phase (time-based, simplified) ────
+// Accumulation : 00:00 - 02:00 NY (before London)
+// Manipulation : 02:00 - 05:00 NY (London sweep / fakeout)
+// Distribution : 05:00 - 17:00 NY (main directional move)
+po3_current_phase = hr_ny < 2 ? "accum" : hr_ny < 5 ? "manip" : hr_ny < 17 ? "distrib" : "close"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2] ICT STRUCTURE  (BOS, CHoCH, CISD, MSS)
@@ -441,8 +602,9 @@ webhook_url_hint = input.string("", "Webhook URL (reminder only)",
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║                                                                          ║
-// ║   PHASE A.1 VALIDATION — minimal compile check                           ║
-// ║   (This block exists ONLY so the strategy compiles. Removed in A.4+)     ║
+// ║   COMPILE-CHECK + HUD DASHBOARD                                          ║
+// ║   Touches all unused inputs to prevent "unused variable" warnings        ║
+// ║   Shows live state via HUD label on last bar                             ║
 // ║                                                                          ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -467,16 +629,28 @@ _col_touch8 = color.new(col_kz_ny_am, 0)
 _col_touch9 = color.new(col_kz_ny_pm, 0)
 _col_touch10 = color.new(col_kz_asia, 0)
 
-// Show confirmation label on last confirmed historical bar
+// Live HUD dashboard — updates on last bar only
 var label _check_label = na
-if barstate.islastconfirmedhistory
+if (barstate.islastconfirmedhistory or barstate.islast) and show_dashboard
     label.delete(_check_label)
+    _hud_txt = "🎯 ICT v1 · Phase A.2.a\n"
+             + "──────────────────\n"
+             + "Midnight Open : " + (na(midnight_open) ? "—" : str.tostring(midnight_open, format.mintick)) + "\n"
+             + "Weekly Open   : " + (na(weekly_open)   ? "—" : str.tostring(weekly_open, format.mintick))   + "\n"
+             + "──────────────────\n"
+             + "PO3 Prev Day  : " + po3_daily_prev_dir  + "\n"
+             + "PO3 Prev Week : " + po3_weekly_prev_dir + "\n"
+             + "Current Phase : " + po3_current_phase   + "\n"
+             + "──────────────────\n"
+             + "KZ Active     : " + current_kz          + "\n"
+             + "Last Swing H  : " + (na(last_sh) ? "—" : str.tostring(last_sh, format.mintick)) + "\n"
+             + "Last Swing L  : " + (na(last_sl) ? "—" : str.tostring(last_sl, format.mintick))
     _check_label := label.new(
          bar_index, high,
-         "🟢 A.1 SKELETON OK\n" + str.tostring(_num_touch, "#") + " inputs OK",
+         _hud_txt,
          style     = label.style_label_down,
-         color     = color.new(color.green, 30),
+         color     = color.new(color.green, 20),
          textcolor = color.white,
-         size      = size.small)
+         size      = size.normal)
 
-// End of A.1 skeleton ────────────────────────────────────────────────────────
+// End of A.2.a ──────────────────────────────────────────────────────────────
