@@ -39,6 +39,8 @@ indicator(
 // INPUTS
 // ============================================================================
 grp_gen      = "═══ GENERAL ═══"
+clean_mode   = input.bool(true,  "🧹 CLEAN MODE (hide clutter, show only S/A+ setups)", group = grp_gen,
+                         tooltip = "ON = chart épuré, affiche uniquement setups elite. OFF = affiche tout (FULL mode)")
 show_dash    = input.bool(true,  "Show Dashboard HUD",   group = grp_gen)
 dash_pos_in  = input.string("Top Right", "Dashboard Position",
                            options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Middle Right"],
@@ -47,7 +49,7 @@ alert_min    = input.string("A+", "Alert Grade Threshold",
                            options = ["S", "A+", "A", "B"],
                            tooltip = "S = 1-2/d rare · A+ = 3-5/d · A = 6-12/d · B = 10-20/d",
                            group = grp_gen)
-show_anchor  = input.bool(true,  "Show True Day/Week Open lines", group = grp_gen)
+show_anchor  = input.bool(false, "Show True Day/Week Open lines", group = grp_gen)
 
 grp_ict      = "═══ ICT ELEMENTS ═══"
 show_fvg     = input.bool(true,  "FVG",                  group = grp_ict)
@@ -147,7 +149,7 @@ f_bias_col(b) =>
     b == 1 ? color.new(#00E676, 50) : b == -1 ? color.new(#FF1744, 50) : color.new(color.gray, 50)
 
 f_grade(sc) =>
-    sc >= 10 ? "S" : sc >= 8 ? "A+" : sc >= 6 ? "A" : sc >= 4 ? "B" : "-"
+    sc >= 9 ? "S" : sc >= 7 ? "A+" : sc >= 5 ? "A" : sc >= 3 ? "B" : "-"
 
 f_grade_col(g) =>
     g == "S"  ? C_S :
@@ -349,12 +351,12 @@ var array<box> fvg_bear_bx = array.new<box>()
 var array<int> fvg_bull_br = array.new<int>()
 var array<int> fvg_bear_br = array.new<int>()
 
-if show_fvg and fvg_bull_now and barstate.isconfirmed
+if show_fvg and not clean_mode and fvg_bull_now and barstate.isconfirmed
     b = box.new(bar_index - 2, high[2], bar_index + 10, low, border_color = C_BULL_B, bgcolor = C_BULL)
     array.push(fvg_bull_bx, b)
     array.push(fvg_bull_br, bar_index)
 
-if show_fvg and fvg_bear_now and barstate.isconfirmed
+if show_fvg and not clean_mode and fvg_bear_now and barstate.isconfirmed
     b = box.new(bar_index - 2, high, bar_index + 10, low[2], border_color = C_BEAR_B, bgcolor = C_BEAR)
     array.push(fvg_bear_bx, b)
     array.push(fvg_bear_br, bar_index)
@@ -388,10 +390,10 @@ cu_lo5 = ta.crossunder(close, close_lo5)
 ifvg_bull = fvg_bear_cnt > 0 and close > open and cx_hi5
 ifvg_bear = fvg_bull_cnt > 0 and close < open and cu_lo5
 
-if show_ifvg and ifvg_bull and barstate.isconfirmed
+if show_ifvg and not clean_mode and ifvg_bull and barstate.isconfirmed
     label.new(bar_index, low, "IFVG↑", color = color.new(#00BCD4, 40), textcolor = color.white, style = label.style_label_up, size = size.tiny)
 
-if show_ifvg and ifvg_bear and barstate.isconfirmed
+if show_ifvg and not clean_mode and ifvg_bear and barstate.isconfirmed
     label.new(bar_index, high, "IFVG↓", color = color.new(#FF9800, 40), textcolor = color.white, style = label.style_label_down, size = size.tiny)
 
 // ============================================================================
@@ -405,11 +407,11 @@ ob_bear_trig = close < open and close[1] > open[1] and body_sz > rng_sz * 0.6 an
 var array<box> ob_bull_bx = array.new<box>()
 var array<box> ob_bear_bx = array.new<box>()
 
-if show_ob and ob_bull_trig and barstate.isconfirmed
+if show_ob and not clean_mode and ob_bull_trig and barstate.isconfirmed
     b = box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color = C_BULL_B, bgcolor = color.new(#00E676, 92))
     array.push(ob_bull_bx, b)
 
-if show_ob and ob_bear_trig and barstate.isconfirmed
+if show_ob and not clean_mode and ob_bear_trig and barstate.isconfirmed
     b = box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color = C_BEAR_B, bgcolor = color.new(#FF1744, 92))
     array.push(ob_bear_bx, b)
 
@@ -432,10 +434,10 @@ cu_lo10   = ta.crossunder(close, low_lo10)
 bb_bull = close > open and close > high[5] and low < low[5]   and cx_hi10
 bb_bear = close < open and close < low[5]  and high > high[5] and cu_lo10
 
-if show_bb and bb_bull and barstate.isconfirmed
+if show_bb and not clean_mode and bb_bull and barstate.isconfirmed
     label.new(bar_index, low, "BB↑", color = color.new(#00E676, 50), textcolor = color.white, style = label.style_label_up, size = size.small)
 
-if show_bb and bb_bear and barstate.isconfirmed
+if show_bb and not clean_mode and bb_bear and barstate.isconfirmed
     label.new(bar_index, high, "BB↓", color = color.new(#FF1744, 50), textcolor = color.white, style = label.style_label_down, size = size.small)
 
 // ============================================================================
@@ -449,12 +451,12 @@ var array<line>  liq_lo_ln = array.new<line>()
 var array<float> liq_hi_px = array.new<float>()
 var array<float> liq_lo_px = array.new<float>()
 
-if show_liq and not na(sw_h)
+if show_liq and not clean_mode and not na(sw_h)
     ln = line.new(bar_index - swing_len, sw_h, bar_index + 30, sw_h, color = color.new(#FF1744, 40), style = line.style_dashed, width = 1)
     array.push(liq_hi_ln, ln)
     array.push(liq_hi_px, sw_h)
 
-if show_liq and not na(sw_l)
+if show_liq and not clean_mode and not na(sw_l)
     ln = line.new(bar_index - swing_len, sw_l, bar_index + 30, sw_l, color = color.new(#00E676, 40), style = line.style_dashed, width = 1)
     array.push(liq_lo_ln, ln)
     array.push(liq_lo_px, sw_l)
@@ -476,10 +478,10 @@ atr_tol = atr14 * 0.15
 eql_h = not na(sw_h) and not na(sw_h[1]) and math.abs(sw_h - sw_h[1]) <= atr_tol
 eql_l = not na(sw_l) and not na(sw_l[1]) and math.abs(sw_l - sw_l[1]) <= atr_tol
 
-if show_eql and eql_h and barstate.isconfirmed
+if show_eql and not clean_mode and eql_h and barstate.isconfirmed
     label.new(bar_index, sw_h, "EQH", color = color.new(#FF1744, 30), textcolor = color.white, style = label.style_label_down, size = size.tiny)
 
-if show_eql and eql_l and barstate.isconfirmed
+if show_eql and not clean_mode and eql_l and barstate.isconfirmed
     label.new(bar_index, sw_l, "EQL", color = color.new(#00E676, 30), textcolor = color.white, style = label.style_label_up, size = size.tiny)
 
 // ============================================================================
@@ -546,19 +548,19 @@ in_ote_bull = close >= ote_bull_lo and close <= ote_bull_hi
 in_ote_bear = close >= ote_bear_lo and close <= ote_bear_hi
 
 var box pd_box = na
-if show_pd and barstate.islast
+if show_pd and not clean_mode and barstate.islast
     box.delete(pd_box)
     pd_box := box.new(bar_index - 50, pd_hi, bar_index + 20, pd_mid, border_color = color.new(#FF1744, 70), bgcolor = C_PREM)
     box.new(bar_index - 50, pd_mid, bar_index + 20, pd_lo, border_color = color.new(#00E676, 70), bgcolor = C_DISC)
 
 var line eq_ln = na
-if show_pd and barstate.islast
+if show_pd and not clean_mode and barstate.islast
     line.delete(eq_ln)
     eq_ln := line.new(bar_index - 50, pd_mid, bar_index + 20, pd_mid, color = color.new(#9E9E9E, 30), style = line.style_dotted, width = 1)
 
 var box ote_bull_bx2 = na
 var box ote_bear_bx2 = na
-if show_ote and barstate.islast
+if show_ote and not clean_mode and barstate.islast
     box.delete(ote_bull_bx2)
     box.delete(ote_bear_bx2)
     ote_bull_bx2 := box.new(bar_index - 50, ote_bull_hi, bar_index + 20, ote_bull_lo, border_color = color.new(#AB47BC, 60), bgcolor = C_OTE)
@@ -570,16 +572,16 @@ if show_ote and barstate.islast
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
-plot(show_pdh ? pdh : na, "PDH", color = color.new(#00BCD4, 40), linewidth = 1)
-plot(show_pdh ? pdl : na, "PDL", color = color.new(#00BCD4, 40), linewidth = 1)
-plot(show_pdh ? pwh : na, "PWH", color = color.new(#FFEB3B, 40), linewidth = 2)
-plot(show_pdh ? pwl : na, "PWL", color = color.new(#FFEB3B, 40), linewidth = 2)
+plot(show_pdh and not clean_mode ? pdh : na, "PDH", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh and not clean_mode ? pdl : na, "PDL", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh and not clean_mode ? pwh : na, "PWH", color = color.new(#FFEB3B, 40), linewidth = 2)
+plot(show_pdh and not clean_mode ? pwl : na, "PWL", color = color.new(#FFEB3B, 40), linewidth = 2)
 
 // True Day/Week Open (anchor lines)
 [tdo] = request.security(syminfo.tickerid, "D", [open], lookahead = barmerge.lookahead_on)
 [two] = request.security(syminfo.tickerid, "W", [open], lookahead = barmerge.lookahead_on)
-plot(show_anchor ? tdo : na, "TDO", color = color.new(#F48FB1, 30), linewidth = 1, style = plot.style_linebr)
-plot(show_anchor ? two : na, "TWO", color = color.new(#CE93D8, 20), linewidth = 2, style = plot.style_linebr)
+plot(show_anchor and not clean_mode ? tdo : na, "TDO", color = color.new(#F48FB1, 30), linewidth = 1, style = plot.style_linebr)
+plot(show_anchor and not clean_mode ? two : na, "TWO", color = color.new(#CE93D8, 20), linewidth = 2, style = plot.style_linebr)
 
 // Asia range (for PO3)
 [asia_h, asia_l] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -643,9 +645,9 @@ vp_poc = vwap_v
 vp_vah = vp_poc + (vp_hi - vp_poc) * 0.7
 vp_val = vp_poc - (vp_poc - vp_lo) * 0.7
 
-plot(show_vp ? vp_poc : na, "POC", color = color.new(#FFEB3B, 20), linewidth = 2)
-plot(show_vp ? vp_vah : na, "VAH", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
-plot(show_vp ? vp_val : na, "VAL", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
+plot(show_vp and not clean_mode ? vp_poc : na, "POC", color = color.new(#FFEB3B, 20), linewidth = 2)
+plot(show_vp and not clean_mode ? vp_vah : na, "VAH", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
+plot(show_vp and not clean_mode ? vp_val : na, "VAL", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
 
 // CVD proxy : cumulative buying/selling pressure approximation
 bar_range = math.max(high - low, syminfo.mintick)
@@ -812,15 +814,18 @@ if show_lines and draw_setup and barstate.isconfirmed
     float tp1_p = setup_bull ? close + atr14 * tp1_atr_mult : close - atr14 * tp1_atr_mult
     float tp2_p = setup_bull ? close + atr14 * tp2_atr_mult : close - atr14 * tp2_atr_mult
 
-    entry_ln := line.new(bar_index, entry_p, bar_index + 30, entry_p, color = color.new(#FFFFFF, 20), style = line.style_solid,  width = 2)
-    sl_ln    := line.new(bar_index, sl_p,    bar_index + 30, sl_p,    color = color.new(#FF1744, 30), style = line.style_dashed, width = 2)
-    tp1_ln   := line.new(bar_index, tp1_p,   bar_index + 30, tp1_p,   color = color.new(#00E676, 40), style = line.style_dashed, width = 1)
-    tp2_ln   := line.new(bar_index, tp2_p,   bar_index + 30, tp2_p,   color = color.new(#00E676, 20), style = line.style_dashed, width = 2)
+    // BIG, BRIGHT trade lines (extended 50 bars, wider, brighter colors)
+    entry_ln := line.new(bar_index, entry_p, bar_index + 50, entry_p, color = color.new(#FFFFFF, 0),  style = line.style_solid,  width = 3)
+    sl_ln    := line.new(bar_index, sl_p,    bar_index + 50, sl_p,    color = color.new(#FF1744, 0),  style = line.style_solid,  width = 3)
+    tp1_ln   := line.new(bar_index, tp1_p,   bar_index + 50, tp1_p,   color = color.new(#00E676, 10), style = line.style_dashed, width = 2)
+    tp2_ln   := line.new(bar_index, tp2_p,   bar_index + 50, tp2_p,   color = color.new(#00E676, 0),  style = line.style_solid,  width = 3)
 
-    entry_lbl := label.new(bar_index + 30, entry_p, "ENTRY " + str.tostring(entry_p, "#.#####"), color = color.new(#FFFFFF, 20), textcolor = color.black, style = label.style_label_left, size = size.small)
-    sl_lbl    := label.new(bar_index + 30, sl_p,    "SL "    + str.tostring(sl_p,    "#.#####"), color = color.new(#FF1744, 30), textcolor = color.white, style = label.style_label_left, size = size.small)
-    tp1_lbl   := label.new(bar_index + 30, tp1_p,   "TP1 "   + str.tostring(tp1_p,   "#.#####"), color = color.new(#00E676, 40), textcolor = color.white, style = label.style_label_left, size = size.small)
-    tp2_lbl   := label.new(bar_index + 30, tp2_p,   "TP2 "   + str.tostring(tp2_p,   "#.#####"), color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_left, size = size.small)
+    // BIG prominent labels with grade + direction
+    dir_arrow = setup_bull ? "🟢 LONG" : "🔴 SHORT"
+    entry_lbl := label.new(bar_index + 50, entry_p, "🎯 " + grade_v3 + " " + dir_arrow + "  ENTRY " + str.tostring(entry_p, "#.#####"), color = color.new(#FFFFFF, 0),  textcolor = color.black, style = label.style_label_left, size = size.normal)
+    sl_lbl    := label.new(bar_index + 50, sl_p,    "❌ SL "    + str.tostring(sl_p,    "#.#####"), color = color.new(#FF1744, 0),  textcolor = color.white, style = label.style_label_left, size = size.normal)
+    tp1_lbl   := label.new(bar_index + 50, tp1_p,   "✅ TP1 "   + str.tostring(tp1_p,   "#.#####") + " (+2R)", color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_left, size = size.normal)
+    tp2_lbl   := label.new(bar_index + 50, tp2_p,   "🎯 TP2 "   + str.tostring(tp2_p,   "#.#####") + " (+4R)", color = color.new(#00E676, 0),  textcolor = color.white, style = label.style_label_left, size = size.normal)
 
 // ============================================================================
 // POSITION SIZING
