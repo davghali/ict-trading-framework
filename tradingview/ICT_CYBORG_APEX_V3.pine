@@ -307,9 +307,13 @@ f_smt_pair() =>
 smt_sym = f_smt_pair()
 [smt_h, smt_l] = request.security(smt_sym, timeframe.period, [high, low], lookahead = barmerge.lookahead_off)
 
+// Pre-compute ta.* outside conditional (Pine warns if in conditional)
+smt_h_prev = ta.highest(smt_h[1], 5)
+smt_l_prev = ta.lowest(smt_l[1], 5)
+
 // SMT bearish : we make new HH but pair doesn't
-smt_bear = show_smt and not na(smt_h) and high > high[5] and smt_h <= ta.highest(smt_h[1], 5)
-smt_bull = show_smt and not na(smt_l) and low < low[5]   and smt_l >= ta.lowest(smt_l[1], 5)
+smt_bear = show_smt and not na(smt_h) and high > high[5] and smt_h <= smt_h_prev
+smt_bull = show_smt and not na(smt_l) and low < low[5]   and smt_l >= smt_l_prev
 
 // ============================================================================
 // REGIME
@@ -374,9 +378,15 @@ fvg_bear_cnt = array.size(fvg_bear_bx)
 
 // ============================================================================
 // IFVG (Inverse FVG - FVG that price filled then reversed through)
+// Pre-compute ta.* outside conditional to avoid warnings
 // ============================================================================
-ifvg_bull = fvg_bear_cnt > 0 and close > open and ta.crossover(close, ta.highest(close[1], 5))
-ifvg_bear = fvg_bull_cnt > 0 and close < open and ta.crossunder(close, ta.lowest(close[1], 5))
+close_hi5 = ta.highest(close[1], 5)
+close_lo5 = ta.lowest(close[1], 5)
+cx_hi5 = ta.crossover(close, close_hi5)
+cu_lo5 = ta.crossunder(close, close_lo5)
+
+ifvg_bull = fvg_bear_cnt > 0 and close > open and cx_hi5
+ifvg_bear = fvg_bull_cnt > 0 and close < open and cu_lo5
 
 if show_ifvg and ifvg_bull and barstate.isconfirmed
     label.new(bar_index, low, "IFVG↑", color = color.new(#00BCD4, 40), textcolor = color.white, style = label.style_label_up, size = size.tiny)
@@ -412,10 +422,15 @@ ob_bull_cnt = array.size(ob_bull_bx)
 ob_bear_cnt = array.size(ob_bear_bx)
 
 // ============================================================================
-// BREAKER BLOCKS
+// BREAKER BLOCKS (pre-compute ta.* outside conditional)
 // ============================================================================
-bb_bull = close > open and close > high[5] and low < low[5] and ta.crossover(close, ta.highest(high[1], 10))
-bb_bear = close < open and close < low[5]  and high > high[5] and ta.crossunder(close, ta.lowest(low[1], 10))
+high_hi10 = ta.highest(high[1], 10)
+low_lo10  = ta.lowest(low[1], 10)
+cx_hi10   = ta.crossover(close,  high_hi10)
+cu_lo10   = ta.crossunder(close, low_lo10)
+
+bb_bull = close > open and close > high[5] and low < low[5]   and cx_hi10
+bb_bear = close < open and close < low[5]  and high > high[5] and cu_lo10
 
 if show_bb and bb_bull and barstate.isconfirmed
     label.new(bar_index, low, "BB↑", color = color.new(#00E676, 50), textcolor = color.white, style = label.style_label_up, size = size.small)
@@ -482,9 +497,11 @@ if not na(sw_l)
     prev_sw_l := last_sw_l
     last_sw_l := sw_l
 
-// BOS detection (bullish)
-bos_bull = not na(last_sw_h) and ta.crossover(close, last_sw_h)
-bos_bear = not na(last_sw_l) and ta.crossunder(close, last_sw_l)
+// BOS detection (pre-compute crossovers)
+cx_lsh = ta.crossover(close,  nz(last_sw_h, close))
+cu_lsl = ta.crossunder(close, nz(last_sw_l, close))
+bos_bull = not na(last_sw_h) and cx_lsh
+bos_bear = not na(last_sw_l) and cu_lsl
 
 // CHoCH detection - track the dominant trend
 var int trend_dir = 0
@@ -589,9 +606,10 @@ judas_bear = in_lo_open and high > high[5] and close < open and close < low[5]
 po3_bull = in_london and low < asia_l and close > asia_l and close > open
 po3_bear = in_london and high > asia_h and close < asia_h and close < open
 
-// Turtle Soup (failed breakout reversal - stops hunted then reverse)
-turtle_bull = not na(last_sw_l) and low < last_sw_l and close > last_sw_l and close > open and volume > ta.sma(volume, 20)
-turtle_bear = not na(last_sw_h) and high > last_sw_h and close < last_sw_h and close < open and volume > ta.sma(volume, 20)
+// Turtle Soup (pre-compute sma)
+vol_sma20 = ta.sma(volume, 20)
+turtle_bull = not na(last_sw_l) and low  < last_sw_l and close > last_sw_l and close > open and volume > vol_sma20
+turtle_bear = not na(last_sw_h) and high > last_sw_h and close < last_sw_h and close < open and volume > vol_sma20
 
 if turtle_bull and barstate.isconfirmed
     label.new(bar_index, low,  "TS↑", color = color.new(#FFD600, 30), textcolor = color.black, style = label.style_label_up, size = size.small)
@@ -639,8 +657,10 @@ var float cvd = 0.0
 cvd := cvd + bar_delta
 cvd_sma = ta.sma(cvd, 20)
 cvd_trend = cvd > cvd_sma ? 1 : -1
-cvd_divergence_bear = close > ta.highest(close[1], 10) and cvd < cvd[10]
-cvd_divergence_bull = close < ta.lowest(close[1], 10)  and cvd > cvd[10]
+close_hi10_prev = ta.highest(close[1], 10)
+close_lo10_prev = ta.lowest(close[1], 10)
+cvd_divergence_bear = close > close_hi10_prev and cvd < cvd[10]
+cvd_divergence_bull = close < close_lo10_prev and cvd > cvd[10]
 
 // ============================================================================
 // CONFLUENCE SCORE (0-15, richer than V2)
