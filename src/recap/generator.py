@@ -120,65 +120,86 @@ class RecapGenerator:
         return "\n".join(lines)
 
     # ==================================================================
-    # EVENING RECAP
+    # EVENING RECAP (CLEAN - v2026.04.20, no legacy "Hidden Alert")
     # ==================================================================
     def evening_recap(self) -> str:
-        today = datetime.utcnow().date()
+        now = datetime.utcnow()
+        today = now.date()
         t_trades = self._trades_on_date(today)
         t_stats = self._compute_stats(t_trades)
 
+        # Paris time for header
+        try:
+            from src.utils.tz_display import format_paris
+            paris_time = format_paris(fmt="%H:%M")
+        except Exception:
+            paris_time = (now + timedelta(hours=2)).strftime("%H:%M")
+
         lines = [
-            f"🌙 *EVENING RECAP — {today.strftime('%A %d %B')}*\n",
+            f"🏙️ *RECAP DU SOIR*",
+            f"{today.strftime('%A %d/%m/%Y')}  ·  {paris_time} Paris\n",
         ]
 
-        if t_stats["n"] == 0:
-            lines.append("😴 Aucun trade aujourd'hui — journée calme.")
-            return "\n".join(lines)
+        # ======= SIGNAUX DU JOUR =======
+        closed_today = [t for t in t_trades if getattr(t, "is_closed", False)]
+        count_s_aplus = sum(1 for t in t_trades if getattr(t, "tier", None) in ("S", "A+"))
+        count_a = sum(1 for t in t_trades if getattr(t, "tier", None) == "A")
+        count_b = sum(1 for t in t_trades if getattr(t, "tier", None) == "B")
 
-        # Today stats
-        lines.append(f"📊 *Total : {t_stats['n']} trades*")
-        lines.append(f"  ✅ Wins : {t_stats['wins']}  |  ❌ Losses : {t_stats['n'] - t_stats['wins']}")
-        lines.append(f"  📈 WR : *{t_stats['win_rate']:.0%}*")
-        lines.append(f"  💰 PnL : *{t_stats['pnl']:+.0f} USD* ({t_stats['pnl_pct']:+.2f}%)")
-        lines.append(f"  ⚡ R total : *{t_stats['r']:+.2f}R*")
-
-        if t_stats["n"] >= 2:
-            lines.append(f"  📐 Expectancy : {t_stats['r'] / t_stats['n']:+.2f}R/trade")
-
-        lines.append("")
-
-        # Best & worst
-        closed = [t for t in t_trades if t.is_closed]
-        if closed:
-            best = max(closed, key=lambda t: t.pnl_r or 0)
-            worst = min(closed, key=lambda t: t.pnl_r or 0)
-            lines.append(f"🏆 *Best*  : {best.symbol} {best.side} {best.pnl_r:+.1f}R "
-                          f"({best.pnl_usd:+.0f}$)")
-            lines.append(f"📉 *Worst* : {worst.symbol} {worst.side} {worst.pnl_r:+.1f}R "
-                          f"({worst.pnl_usd:+.0f}$)")
-
-        lines.append("")
-
-        # Compliance FTMO
-        daily_limit = self.rules["max_daily_loss_pct"]
-        daily_pct = -t_stats["pnl_pct"] if t_stats["pnl_pct"] < 0 else 0
-        if daily_pct > 0:
-            lines.append(f"🛡️ *Compliance FTMO daily* : -{daily_pct:.2f}% / -{daily_limit}% limit")
-            if daily_pct > daily_limit * 0.7:
-                lines.append("  ⚠️ Approche de la limite daily — attention demain")
-            else:
-                lines.append("  ✅ Safe")
+        lines.append(f"🎯 *SIGNAUX DU JOUR*")
+        lines.append(f"Total: {t_stats['n']}")
+        if t_stats["n"] > 0:
+            lines.append(f"🏆 A+/S: {count_s_aplus}    ⭐ A: {count_a}    ⚡ B: {count_b}")
         else:
-            lines.append("🛡️ *Compliance FTMO* : ✅ journée positive")
-
+            lines.append(f"🏆 A+/S: 0    ⭐ A: 0    ⚡ B: 0")
         lines.append("")
 
-        # Weekly context
-        week_trades = self._trades_last_n_days(7)
-        w_stats = self._compute_stats(week_trades)
-        if w_stats["n"] > 0:
-            lines.append(f"📅 *Cumul 7j* : {w_stats['n']} trades | WR {w_stats['win_rate']:.0%} | "
-                          f"{w_stats['pnl']:+.0f}$ | {w_stats['r']:+.1f}R")
+        # ======= PROPFIRM =======
+        daily_limit = self.rules["max_daily_loss_pct"]
+        target_pct = self.rules.get("profit_target_pct", 10.0)
+
+        pnl_pct_day = t_stats["pnl_pct"] if t_stats["n"] > 0 else 0.0
+        dd_pct = max(0, -pnl_pct_day) if pnl_pct_day < 0 else 0
+
+        # Calculate objective % accomplished (week-to-date)
+        week_trades_local = self._trades_last_n_days(7)
+        w_stats_local = self._compute_stats(week_trades_local)
+        accompli_pct = min(100, max(0, (w_stats_local["pnl_pct"] / target_pct * 100))) if target_pct > 0 else 0
+
+        lines.append(f"🏛️ *PROPFIRM*")
+        lines.append(f"P&L jour:   {pnl_pct_day:+.2f}%")
+        lines.append(f"Drawdown:   {dd_pct:.2f}% (limit -{daily_limit}%)")
+        lines.append(f"Objectif:   {accompli_pct:.1f}% accompli (target +{target_pct}%)")
+        lines.append("")
+
+        # ======= TRADE DETAIL (only if trades today) =======
+        if t_stats["n"] > 0:
+            lines.append(f"📊 *Performance*")
+            lines.append(f"  WR : *{t_stats['win_rate']:.0%}*   R : *{t_stats['r']:+.2f}R*   PnL : *{t_stats['pnl']:+.0f}$*")
+
+            if closed_today:
+                best = max(closed_today, key=lambda t: t.pnl_r or 0)
+                worst = min(closed_today, key=lambda t: t.pnl_r or 0)
+                lines.append(f"🏆 Best  : {best.symbol} {best.side} {best.pnl_r:+.1f}R")
+                lines.append(f"📉 Worst : {worst.symbol} {worst.side} {worst.pnl_r:+.1f}R")
+            lines.append("")
+
+        # ======= DEMAIN (killzones) =======
+        lines.append(f"🕐 *DEMAIN*")
+        lines.append(f"🇬🇧 London:  09:00 Paris  (07:00 UTC)")
+        lines.append(f"🇺🇸 NY AM:   14:30 Paris  (12:30 UTC)")
+
+        # ======= Weekly context (at bottom) =======
+        if w_stats_local["n"] > 0:
+            lines.append("")
+            lines.append(f"📅 *Cumul 7j* : {w_stats_local['n']} trades | "
+                          f"WR {w_stats_local['win_rate']:.0%} | "
+                          f"{w_stats_local['r']:+.1f}R | "
+                          f"{w_stats_local['pnl_pct']:+.2f}%")
+
+        # ======= Closing (CLEAN - no "Hidden Alert" legacy) =======
+        lines.append("")
+        lines.append(f"💤 Bonne nuit David — discipline ✓")
 
         return "\n".join(lines)
 
