@@ -87,11 +87,12 @@ sym_us10y    = input.symbol("TVC:US10Y",     "US10Y symbol",     group = grp_cro
 sym_eth      = input.symbol("BINANCE:ETHUSDT","ETH symbol",      group = grp_cross)
 
 grp_omni     = "═══ OMNISCIENT DASHBOARD ═══"
-show_omni    = input.bool(true, "Show Omniscient Multi-Asset Grades", group = grp_omni)
-omni_eu      = input.symbol("OANDA:EURUSD",  "EURUSD symbol",    group = grp_omni)
-omni_xau     = input.symbol("OANDA:XAUUSD",  "XAUUSD symbol",    group = grp_omni)
-omni_nas     = input.symbol("OANDA:NAS100USD","NAS100 symbol",   group = grp_omni)
-omni_btc     = input.symbol("BINANCE:BTCUSDT","BTC symbol",      group = grp_omni)
+show_omni    = input.bool(false,"Show Omniscient Multi-Asset Grades", group = grp_omni,
+                         tooltip = "OFF in Luxe mode for clean UI")
+omni_eu      = input.symbol("OANDA:EURUSD",    "EURUSD",   group = grp_omni)
+omni_xau     = input.symbol("OANDA:XAUUSD",    "XAUUSD",   group = grp_omni)
+omni_nas     = input.symbol("OANDA:NAS100USD", "NAS100",   group = grp_omni)
+omni_btc     = input.symbol("OANDA:BTCUSD",    "BTCUSD",   group = grp_omni)
 
 grp_smt      = "═══ SMT DIVERGENCE ═══"
 show_smt     = input.bool(true, "Enable SMT Divergence", group = grp_smt)
@@ -902,227 +903,127 @@ best_asset_txt = best_sc == eu_sc  ? "EUR "  + eu_g  :
                   "BTC "  + btc_g
 
 // ============================================================================
-// DASHBOARD HUD
+// LUXE DASHBOARD (compact, minimalist, trader-focused)
 // ============================================================================
-var table dash = table.new(f_dash_position(), 2, 50,
-                             bgcolor       = color.new(#0F172A, 10),
-                             border_color  = color.new(#FFFFFF, 75),
+// Pre-compute trade details for luxe card
+entry_price_lux  = close
+sl_price_lux     = setup_bull ? close - atr14 * sl_atr_mult  : close + atr14 * sl_atr_mult
+tp1_price_lux    = setup_bull ? close + atr14 * tp1_atr_mult : close - atr14 * tp1_atr_mult
+tp2_price_lux    = setup_bull ? close + atr14 * tp2_atr_mult : close - atr14 * tp2_atr_mult
+
+elite_active = (grade_v3 == "S" or grade_v3 == "A+") and (setup_bull or setup_bear)
+dir_emoji    = setup_bull ? "🟢 LONG" : setup_bear ? "🔴 SHORT" : "—"
+setup_name_lux = unicorn_bull or unicorn_bear ? "🦄 UNICORN" :
+                 sb_bull or sb_bear ? "🎯 Silver Bullet" :
+                 po3_bull or po3_bear ? "⚡ Power of 3" :
+                 turtle_bull or turtle_bear ? "🐢 Turtle Soup" :
+                 judas_bull or judas_bear ? "🔄 Judas Swing" :
+                 bb_bull or bb_bear ? "🧱 Breaker" : "—"
+
+tf_display = timeframe.period == "1"   ? "M1"  :
+             timeframe.period == "3"   ? "M3"  :
+             timeframe.period == "5"   ? "M5"  :
+             timeframe.period == "15"  ? "M15" :
+             timeframe.period == "30"  ? "M30" :
+             timeframe.period == "60"  ? "H1"  :
+             timeframe.period == "240" ? "H4"  :
+             timeframe.period == "D"   ? "Daily" :
+             timeframe.period == "W"   ? "Weekly" :
+             timeframe.period
+
+var table dash = table.new(f_dash_position(), 2, 15,
+                             bgcolor       = color.new(#0F172A, 5),
+                             border_color  = color.new(#FFFFFF, 80),
                              border_width  = 1,
-                             frame_color   = color.new(#DC2626, 30),
+                             frame_color   = color.new(#FFD700, 30),
                              frame_width   = 2)
 
 if show_dash and barstate.islast
-    table.clear(dash, 0, 0, 1, 49)
+    table.clear(dash, 0, 0, 1, 14)
 
-    // --- HEADER
-    table.cell(dash, 0, 0, "🎯 CYBORG APEX V3", text_color = color.white, text_size = size.small, bgcolor = color.new(#DC2626, 40))
-    table.cell(dash, 1, 0, syminfo.ticker,       text_color = color.white, text_size = size.small, bgcolor = color.new(#DC2626, 40))
+    // --- HEADER (always)
+    table.cell(dash, 0, 0, "🎯 CYBORG APEX V3", text_color = color.white, text_size = size.normal, bgcolor = color.new(#1A1A2E, 20))
+    table.cell(dash, 1, 0, f_sym_short(syminfo.ticker) + " · " + tf_display, text_color = color.white, text_size = size.normal, bgcolor = color.new(#1A1A2E, 20))
 
-    // --- GRADE
+    // --- GRADE (always)
     table.cell(dash, 0, 1, "🏆 GRADE", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 1, grade_v3,   text_color = color.white, text_size = size.large, bgcolor = grade_col_v3)
+    table.cell(dash, 1, 1, grade_v3, text_color = color.white, text_size = size.huge, bgcolor = grade_col_v3)
 
-    // --- CONFLUENCE
-    table.cell(dash, 0, 2, "⚡ Confluence", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 2, str.tostring(conf_score) + "/15", text_color = color.white, text_size = size.normal)
+    if elite_active
+        // LUXE TRADE CARD - shows only when S or A+ active
 
-    // --- PROBABILITY
-    table.cell(dash, 0, 3, "🔬 Probability", text_color = color.gray, text_size = size.small)
-    prob_bg = ml_prob >= 75 ? color.new(#00E676, 40) : ml_prob >= 50 ? color.new(#FFC107, 40) : color.new(color.gray, 40)
-    table.cell(dash, 1, 3, ml_emoji + " " + str.tostring(ml_prob, "#") + "%", text_color = color.white, text_size = size.small, bgcolor = prob_bg)
+        // --- DIRECTION
+        table.cell(dash, 0, 2, "📍 Direction", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 2, dir_emoji, text_color = color.white, text_size = size.large, bgcolor = setup_bull ? color.new(#00E676, 20) : color.new(#FF1744, 20))
 
-    // --- EXPECTED R
-    table.cell(dash, 0, 4, "📊 Expected R", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 4, expected_r > 0 ? "+" + str.tostring(expected_r, "#.#") + "R" : "—", text_color = color.white, text_size = size.small)
+        // --- SETUP NAME
+        table.cell(dash, 0, 3, "⚡ Setup", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 3, setup_name_lux, text_color = color.white, text_size = size.normal, bgcolor = color.new(#FFC107, 30))
 
-    // --- SEP BIAS
-    table.cell(dash, 0, 5, "━━ BIAS & STRUCTURE ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 5, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
+        // --- Separator
+        table.cell(dash, 0, 4, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+        table.cell(dash, 1, 4, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
 
-    // --- MULTI-TF
-    table.cell(dash, 0, 6, "Multi-TF", text_color = color.gray, text_size = size.small)
-    mtf_txt = "W" + f_bias_txt(bias_w) + " D" + f_bias_txt(bias_d) + " H4" + f_bias_txt(bias_h4) + " H1" + f_bias_txt(bias_h1)
-    table.cell(dash, 1, 6, mtf_txt, text_color = color.white, text_size = size.small, bgcolor = mtf_aligned ? color.new(#00E676, 40) : color.new(color.gray, 40))
+        // --- ENTRY
+        table.cell(dash, 0, 5, "💠 ENTRY", text_color = color.white, text_size = size.normal, bgcolor = color.new(#FFFFFF, 70))
+        table.cell(dash, 1, 5, str.tostring(entry_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#FFFFFF, 70))
 
-    // --- STRENGTH
-    table.cell(dash, 0, 7, "Strength", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 7, str.tostring(mtf_strength) + "/4", text_color = color.white, text_size = size.small)
+        // --- SL
+        table.cell(dash, 0, 6, "❌ SL", text_color = color.white, text_size = size.normal, bgcolor = color.new(#FF1744, 30))
+        table.cell(dash, 1, 6, str.tostring(sl_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#FF1744, 30))
 
-    // --- STRUCTURE TREND
-    table.cell(dash, 0, 8, "MS Trend", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 8, trend_txt, text_color = color.white, text_size = size.small, bgcolor = trend_col)
+        // --- TP1
+        table.cell(dash, 0, 7, "✅ TP1 (+2R)", text_color = color.white, text_size = size.normal, bgcolor = color.new(#00E676, 40))
+        table.cell(dash, 1, 7, str.tostring(tp1_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#00E676, 40))
 
-    // --- PD ZONE
-    table.cell(dash, 0, 9, "PD Zone", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 9, pd_zone_txt, text_color = color.white, text_size = size.small, bgcolor = pd_zone_col)
+        // --- TP2
+        table.cell(dash, 0, 8, "🎯 TP2 (+4R)", text_color = color.white, text_size = size.normal, bgcolor = color.new(#00E676, 20))
+        table.cell(dash, 1, 8, str.tostring(tp2_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#00E676, 20))
 
-    // --- OTE
-    table.cell(dash, 0, 10, "OTE", text_color = color.gray, text_size = size.small)
-    ote_txt = in_ote_bull ? "🎯 OTE Long zone" : in_ote_bear ? "🎯 OTE Short zone" : "—"
-    table.cell(dash, 1, 10, ote_txt, text_color = color.white, text_size = size.small, bgcolor = (in_ote_bull or in_ote_bear) ? C_OTE : color.new(color.gray, 40))
+        // --- Separator
+        table.cell(dash, 0, 9, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+        table.cell(dash, 1, 9, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
 
-    // --- REGIME
-    table.cell(dash, 0, 11, "Regime", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 11, regime, text_color = color.white, text_size = size.small, bgcolor = regime_col)
+        // --- Confluence & Prob
+        table.cell(dash, 0, 10, "⚡ Confluence", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 10, str.tostring(conf_score) + "/15", text_color = color.white, text_size = size.small)
 
-    // --- SEP CROSS
-    table.cell(dash, 0, 12, "━━ CROSS-ASSET ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 12, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
+        table.cell(dash, 0, 11, "🔬 Probability", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 11, ml_emoji + " " + str.tostring(ml_prob, "#") + "%", text_color = color.white, text_size = size.small, bgcolor = color.new(#00E676, 50))
 
-    // --- DXY
-    table.cell(dash, 0, 13, "DXY", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 13, f_bias_txt(dxy_trend) + "  " + str.tostring(nz(dxy_c, 0), "#.##"), text_color = color.white, text_size = size.small, bgcolor = f_bias_col(dxy_trend))
+        // --- Lots
+        table.cell(dash, 0, 12, "💰 Lots", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 12, str.tostring(lots_calc, "#.##") + " (" + str.tostring(risk_pct) + "%)", text_color = color.white, text_size = size.small)
+    else
+        // IDLE STATE - just waiting
+        table.cell(dash, 0, 2, "⚡ Confluence", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 2, str.tostring(conf_score) + "/15", text_color = color.white, text_size = size.small)
 
-    // --- SPX
-    table.cell(dash, 0, 14, "SPX", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 14, f_bias_txt(spx_trend) + "  " + str.tostring(nz(spx_c, 0), "#.##"), text_color = color.white, text_size = size.small, bgcolor = f_bias_col(spx_trend))
+        table.cell(dash, 0, 3, "Multi-TF", text_color = color.gray, text_size = size.small)
+        mtf_txt = "W" + f_bias_txt(bias_w) + " D" + f_bias_txt(bias_d) + " H4" + f_bias_txt(bias_h4) + " H1" + f_bias_txt(bias_h1)
+        table.cell(dash, 1, 3, mtf_txt, text_color = color.white, text_size = size.small, bgcolor = mtf_aligned ? color.new(#00E676, 40) : color.new(color.gray, 40))
 
-    // --- VIX
-    table.cell(dash, 0, 15, "VIX", text_color = color.gray, text_size = size.small)
-    vix_bg = vix_high ? color.new(#FF1744, 40) : vix_low ? color.new(#00E676, 40) : color.new(color.gray, 40)
-    table.cell(dash, 1, 15, str.tostring(nz(vix_now, 0), "#.##"), text_color = color.white, text_size = size.small, bgcolor = vix_bg)
+        table.cell(dash, 0, 4, "Killzone", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 4, current_kz_txt, text_color = color.white, text_size = size.small, bgcolor = in_any_kz ? color.new(#FFC107, 40) : color.new(color.gray, 40))
 
-    // --- RISK STATE
-    table.cell(dash, 0, 16, "Risk State", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 16, risk_state, text_color = color.white, text_size = size.small, bgcolor = risk_col)
+        table.cell(dash, 0, 5, "Regime", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 5, regime, text_color = color.white, text_size = size.small, bgcolor = regime_col)
 
-    // --- SMT
-    table.cell(dash, 0, 17, "SMT (" + f_sym_short(smt_sym) + ")", text_color = color.gray, text_size = size.small)
-    smt_txt = smt_bear ? "⚠️ Bear div" : smt_bull ? "⚠️ Bull div" : "—"
-    smt_bg  = (smt_bear or smt_bull) ? color.new(#FF9800, 40) : color.new(color.gray, 40)
-    table.cell(dash, 1, 17, smt_txt, text_color = color.white, text_size = size.small, bgcolor = smt_bg)
+        // DXY (context)
+        table.cell(dash, 0, 6, "DXY", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 6, f_bias_txt(dxy_trend) + "  " + str.tostring(nz(dxy_c, 0), "#.##"), text_color = color.white, text_size = size.small, bgcolor = f_bias_col(dxy_trend))
 
-    // --- SEP TIME
-    table.cell(dash, 0, 18, "━━ TIME ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 18, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
+        // Risk state
+        table.cell(dash, 0, 7, "Risk", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 7, risk_state, text_color = color.white, text_size = size.small, bgcolor = risk_col)
 
-    // --- KILLZONE
-    table.cell(dash, 0, 19, "Killzone", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 19, current_kz_txt, text_color = color.white, text_size = size.small, bgcolor = in_any_kz ? color.new(#FFC107, 40) : color.new(color.gray, 40))
+        // Waiting message
+        table.cell(dash, 0, 9, "💤 Status", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 9, "Waiting for S or A+ setup...", text_color = color.new(color.gray, 20), text_size = size.small)
 
-    // --- MACRO
-    table.cell(dash, 0, 20, "Macro", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 20, in_macro ? "ACTIVE (:50-:10)" : "—", text_color = color.white, text_size = size.small, bgcolor = in_macro ? C_MACRO : color.new(color.gray, 40))
-
-    // --- QUARTER
-    table.cell(dash, 0, 21, "Quarter", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 21, quarter_txt, text_color = color.white, text_size = size.small, bgcolor = quarter_col)
-
-    // --- NEXT KZ
-    table.cell(dash, 0, 22, "Next KZ", text_color = color.gray, text_size = size.small)
-    h_left = next_kz_in / 60
-    m_left = next_kz_in % 60
-    table.cell(dash, 1, 22, next_kz_nm + " in " + str.tostring(h_left) + "h" + str.tostring(m_left) + "m", text_color = color.white, text_size = size.small)
-
-    // --- SETUP
-    table.cell(dash, 0, 23, "🎯 Setup", text_color = color.gray, text_size = size.small)
-    setup_txt = unicorn_bull ? "🦄 UNICORN Long" : unicorn_bear ? "🦄 UNICORN Short" :
-                 sb_bull ? "🎯 SB Long" : sb_bear ? "🎯 SB Short" :
-                 po3_bull ? "⚡ PO3 Long" : po3_bear ? "⚡ PO3 Short" :
-                 turtle_bull ? "🐢 Turtle Long" : turtle_bear ? "🐢 Turtle Short" :
-                 judas_bull ? "🔄 Judas Long" : judas_bear ? "🔄 Judas Short" :
-                 bb_bull ? "🧱 BB Long" : bb_bear ? "🧱 BB Short" : "—"
-    setup_bg = (setup_bull or setup_bear) ? color.new(#FFC107, 40) : color.new(color.gray, 40)
-    table.cell(dash, 1, 23, setup_txt, text_color = color.white, text_size = size.small, bgcolor = setup_bg)
-
-    // --- SEP ICT
-    table.cell(dash, 0, 24, "━ ICT ELEMS ━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 24, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-
-    // --- FVG
-    table.cell(dash, 0, 25, "FVG actifs", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 25, "↑" + str.tostring(fvg_bull_cnt) + " ↓" + str.tostring(fvg_bear_cnt), text_color = color.white, text_size = size.small)
-
-    // --- OB
-    table.cell(dash, 0, 26, "Order Blocks", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 26, "↑" + str.tostring(ob_bull_cnt) + " ↓" + str.tostring(ob_bear_cnt), text_color = color.white, text_size = size.small)
-
-    // --- SWEEP
-    table.cell(dash, 0, 27, "Sweep", text_color = color.gray, text_size = size.small)
-    swp_txt = sweep_h ? "⚠️ High swept" : sweep_l ? "⚠️ Low swept" : "—"
-    table.cell(dash, 1, 27, swp_txt, text_color = color.white, text_size = size.small, bgcolor = (sweep_h or sweep_l) ? color.new(#FF1744, 40) : color.new(color.gray, 40))
-
-    // --- EQUAL H/L
-    table.cell(dash, 0, 28, "Equal H/L", text_color = color.gray, text_size = size.small)
-    eql_txt = eql_h ? "⚠️ EQH liquidity" : eql_l ? "⚠️ EQL liquidity" : "—"
-    table.cell(dash, 1, 28, eql_txt, text_color = color.white, text_size = size.small, bgcolor = (eql_h or eql_l) ? color.new(#FF9800, 40) : color.new(color.gray, 40))
-
-    // --- SEP VOLUME
-    table.cell(dash, 0, 29, "━━ VOLUME ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 29, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-
-    // --- POC
-    table.cell(dash, 0, 30, "POC", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 30, str.tostring(vp_poc, "#.#####"), text_color = color.white, text_size = size.small)
-
-    // --- VAH/VAL
-    table.cell(dash, 0, 31, "VAH / VAL", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 31, str.tostring(vp_vah, "#.###") + " / " + str.tostring(vp_val, "#.###"), text_color = color.white, text_size = size.small)
-
-    // --- CVD
-    table.cell(dash, 0, 32, "CVD Trend", text_color = color.gray, text_size = size.small)
-    cvd_txt = cvd_trend == 1 ? "↑ Buying pressure" : "↓ Selling pressure"
-    table.cell(dash, 1, 32, cvd_txt, text_color = color.white, text_size = size.small, bgcolor = cvd_trend == 1 ? color.new(#00E676, 50) : color.new(#FF1744, 50))
-
-    // --- SEP STATS
-    table.cell(dash, 0, 33, "━━ STATS 100b ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 33, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-
-    // --- SETUPS
-    table.cell(dash, 0, 34, "Setups 100b", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 34, str.tostring(setup_count_100), text_color = color.white, text_size = size.small)
-
-    // --- WINRATE
-    table.cell(dash, 0, 35, "Sim Winrate", text_color = color.gray, text_size = size.small)
-    wr_bg = win_rate >= 65 ? color.new(#00E676, 40) : win_rate >= 50 ? color.new(#FFC107, 40) : color.new(color.gray, 40)
-    table.cell(dash, 1, 35, str.tostring(win_rate) + "%", text_color = color.white, text_size = size.small, bgcolor = wr_bg)
-
-    // --- SEP RISK
-    table.cell(dash, 0, 36, "━━ RISK ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 36, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-
-    // --- BALANCE
-    table.cell(dash, 0, 37, "💰 Balance", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 37, "$" + str.tostring(balance, "#"), text_color = color.white, text_size = size.small)
-
-    // --- RISK
-    table.cell(dash, 0, 38, "⚠️ Risk", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 38, str.tostring(risk_pct) + "% = $" + str.tostring(risk_usd, "#.##"), text_color = color.white, text_size = size.small)
-
-    // --- LOTS
-    table.cell(dash, 0, 39, "Lots calc", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 39, (setup_bull or setup_bear) ? str.tostring(lots_calc, "#.##") : "—", text_color = color.white, text_size = size.small)
-
-    // --- SEP OMNISCIENT
-    table.cell(dash, 0, 40, "━━ OMNISCIENT ━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-    table.cell(dash, 1, 40, "━━━━━━━━", text_color = color.new(#DC2626, 30), text_size = size.tiny, bgcolor = color.new(#DC2626, 90))
-
-    // --- EURUSD
-    table.cell(dash, 0, 41, "🇪🇺 EURUSD", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 41, eu_g + "  D" + f_bias_txt(eu_d) + " H1" + f_bias_txt(eu_h1), text_color = color.white, text_size = size.small, bgcolor = f_grade_col(eu_g))
-
-    // --- XAUUSD
-    table.cell(dash, 0, 42, "🥇 XAUUSD", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 42, xau_g + "  D" + f_bias_txt(xau_d) + " H1" + f_bias_txt(xau_h1), text_color = color.white, text_size = size.small, bgcolor = f_grade_col(xau_g))
-
-    // --- NAS100
-    table.cell(dash, 0, 43, "📈 NAS100", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 43, nas_g + "  D" + f_bias_txt(nas_d) + " H1" + f_bias_txt(nas_h1), text_color = color.white, text_size = size.small, bgcolor = f_grade_col(nas_g))
-
-    // --- BTCUSD
-    table.cell(dash, 0, 44, "₿ BTCUSD", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 44, btc_g + "  D" + f_bias_txt(btc_d) + " H1" + f_bias_txt(btc_h1), text_color = color.white, text_size = size.small, bgcolor = f_grade_col(btc_g))
-
-    // --- BEST ASSET NOW
-    table.cell(dash, 0, 45, "🎯 Best now", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 45, best_asset_txt, text_color = color.white, text_size = size.small, bgcolor = color.new(#FFEB3B, 40))
-
-    // --- FOOTER
-    table.cell(dash, 0, 47, "━━━━━━━━", text_color = color.new(color.gray, 70), text_size = size.tiny)
-    table.cell(dash, 1, 47, "━━━━━━━━", text_color = color.new(color.gray, 70), text_size = size.tiny)
-
-    table.cell(dash, 0, 48, "@Davghali", text_color = color.new(color.gray, 30), text_size = size.tiny)
-    table.cell(dash, 1, 48, "APEX V3.0",  text_color = color.new(color.gray, 30), text_size = size.tiny)
+    // --- FOOTER (always)
+    table.cell(dash, 0, 13, "@Davghali", text_color = color.new(color.gray, 30), text_size = size.tiny)
+    table.cell(dash, 1, 13, "APEX V3 LUXE", text_color = color.new(#FFD700, 30), text_size = size.tiny)
 
 // ============================================================================
 // VISUAL MARKERS
@@ -1150,10 +1051,10 @@ above_thr = grade_rank >= min_rank
 // use TradingView's own placeholders {{ticker}}, {{close}}, {{time}}, {{interval}}
 // We build grade-based alerts below
 
-alertcondition(alert_s  and (setup_bull or setup_bear), title = "💎 GRADE S",  message = "💎 GRADE S on {{ticker}} | Setup elite | Close {{close}}")
-alertcondition(alert_ap and (setup_bull or setup_bear), title = "🎯 GRADE A+", message = "🎯 GRADE A+ on {{ticker}} | Confluence strong | Close {{close}}")
-alertcondition(alert_a  and (setup_bull or setup_bear), title = "⭐ GRADE A",  message = "⭐ GRADE A on {{ticker}}")
-alertcondition(alert_b  and (setup_bull or setup_bear), title = "✓ GRADE B",   message = "✓ Grade B on {{ticker}}")
+alertcondition(alert_s  and (setup_bull or setup_bear), title = "💎 GRADE S",  message = "💎 GRADE S · {{ticker}} · {{interval}} · Close {{close}} — Check chart for Entry/SL/TP")
+alertcondition(alert_ap and (setup_bull or setup_bear), title = "🎯 GRADE A+", message = "🎯 GRADE A+ · {{ticker}} · {{interval}} · Close {{close}} — Check chart for Entry/SL/TP")
+alertcondition(alert_a  and (setup_bull or setup_bear), title = "⭐ GRADE A",  message = "⭐ GRADE A · {{ticker}} · {{interval}} · Close {{close}}")
+alertcondition(alert_b  and (setup_bull or setup_bear), title = "✓ GRADE B",   message = "✓ GRADE B · {{ticker}} · {{interval}} · Close {{close}}")
 
 // Unicorn (SNIPER best)
 alertcondition(unicorn_bull, title = "🦄 Unicorn Long",  message = "🦄 UNICORN LONG on {{ticker}} - Rare high probability")
