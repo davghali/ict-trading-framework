@@ -5,6 +5,58 @@ Versions follow `v{phase}.{step}-{iteration}` scheme (e.g., `vA.1-1` = Phase A, 
 
 ---
 
+## [vA.2-b-1] — 2026-04-21
+
+### Added
+- **[A.2.b.1] User-defined types** :
+  - `FVG` type : top, bottom, created_bar, direction, mitigated, inverted, viz box
+  - `OB` type : top, bottom, created_bar, direction, mitigated, broken, strict_valid, viz box
+- **[A.2.b.2] Array-based zone tracking** :
+  - `fvgs : array<FVG>` — all active FVGs (max 50)
+  - `obs : array<OB>` — all active OBs (max 30)
+  - Dedicated color palette for IFVG (purple) and BB (orange)
+- **[A.2.b.3] FVG detection** (§ 3.4) :
+  - Bullish FVG : `low[0] > high[2]`
+  - Bearish FVG : `high[0] < low[2]`
+  - Rendered as transparent box extending `fvg_age_max` bars forward
+- **[A.2.b.4] FVG mitigation + IFVG tracking** :
+  - Age expiry after `fvg_age_max` bars → FVG removed
+  - Mitigation : price enters FVG zone → fade background
+  - IFVG : body close through → purple color flip
+  - Iteration is reverse-order safe for array mutation
+- **[A.2.b.5] Order Block detection** (§ 3.4) :
+  - Bull OB candidate : prev bearish candle + current impulsive bullish close > prev high
+  - Bear OB candidate : prev bullish candle + current impulsive bearish close < prev low
+  - Strict mode (default ON) adds 3 conditions :
+    - (a) Liquidity sweep of recent swing
+    - (b) Impulsive FVG-forming move (implicit)
+    - (c) BOS (close beyond prior swing)
+  - Strict vs relaxed toggle via `ob_require_3_conditions`
+- **[A.2.b.6] OB mitigation + BB promotion** :
+  - OB mitigated when price returns inside
+  - OB broken (close through opposite side) → promotes to BB (orange box, "BB" label)
+- **[A.2.b.7] Active zones counters** for HUD :
+  - `active_bull_fvg_count`, `active_bear_fvg_count`, `active_ifvg_count`
+  - `active_bull_ob_count`, `active_bear_ob_count`, `active_bb_count`
+
+### Updated
+- HUD Dashboard : now shows OPENS / PO3 / KZ / PD ARRAYS (active counts) / SWINGS
+- Header roadmap : A.2.b marked complete
+
+### Decisions
+- **Arrays over boxes directly** : using typed arrays gives clean state management, mitigation tracking, and IFVG promotion logic
+- **Max 50 FVGs / 30 OBs** : performance safety cap — oldest removed if cap hit
+- **BPR deferred** : overlap detection of bull+bear FVG is O(n²) and lower priority. Will add in A.2.c if time permits, else A.2.e
+- **OB strict mode default ON** : per spec § 3.4, strict definition is preferred
+
+### Next (A.2.c)
+- BOS (Break of Structure) with body-close option
+- CHoCH (Change of Character) = BB + IFVG invalidating prior structure
+- CISD (Change in State of Delivery) = LTF confirmation via sweep + OB + FVG
+- MSS alias for CHoCH
+
+---
+
 ## [vA.2-a-1] — 2026-04-21
 
 ### Added

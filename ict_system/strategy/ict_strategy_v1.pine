@@ -10,8 +10,8 @@
 // ║                                                                          ║
 // ║   PHASE ROADMAP :                                                        ║
 // ║     A.1   Skeleton + Inputs                  ✅ DONE                      ║
-// ║     A.2.a Opens + KZ viz + Swings + PO3      ✅ DONE ← YOU ARE HERE       ║
-// ║     A.2.b PD Arrays (FVG/IFVG/BPR/OB/BB)     🔜 NEXT                      ║
+// ║     A.2.a Opens + KZ viz + Swings + PO3      ✅ DONE                      ║
+// ║     A.2.b PD Arrays (FVG/IFVG/OB/BB)         ✅ DONE ← YOU ARE HERE       ║
 // ║     A.2.c Structure (BOS/CHoCH/CISD/MSS)                                  ║
 // ║     A.2.d Liquidity (PDH-PDL-PWH-PWL-PMH-PML + EQH/EQL + KZ H/L)          ║
 // ║     A.2.e P/D/E zones + HUD dashboard                                     ║
@@ -505,6 +505,301 @@ po3_weekly_prev_dir = po3_weekly_prev_bull ? "bull" : po3_weekly_prev_bear ? "be
 // Distribution : 05:00 - 17:00 NY (main directional move)
 po3_current_phase = hr_ny < 2 ? "accum" : hr_ny < 5 ? "manip" : hr_ny < 17 ? "distrib" : "close"
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  [A.2.b] PD ARRAYS — FVG / IFVG / BPR / OB / BB  (§ 3.4)                ║
+// ║  Status : IMPLEMENTED ✅                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.1] TYPE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+type FVG
+    float top        = 0.0
+    float bottom     = 0.0
+    int   created_bar = 0
+    string direction  = "bull"   // bull | bear
+    bool  mitigated  = false     // price entered the zone
+    bool  inverted   = false     // closed through by body → becomes IFVG
+    box   viz        = na
+
+type OB
+    float top         = 0.0
+    float bottom      = 0.0
+    int   created_bar = 0
+    string direction  = "bull"   // bull | bear
+    bool  mitigated   = false    // price returned to OB
+    bool  broken      = false    // OB invalidated → becomes BB
+    bool  strict_valid= false    // passed 3-condition check (sweep + FVG + BOS)
+    box   viz         = na
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.2] ARRAYS (active zones)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var array<FVG> fvgs = array.new<FVG>()
+var array<OB>  obs  = array.new<OB>()
+
+MAX_ACTIVE_FVGS = 50
+MAX_ACTIVE_OBS  = 30
+
+// Color for IFVG (distinct from regular FVG)
+C_IFVG_BG     = color.new(#AB47BC, 85)
+C_IFVG_BORDER = color.new(#AB47BC, 30)
+C_BB_BG       = color.new(#FF9800, 80)
+C_BB_BORDER   = color.new(#FF9800, 20)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.3] FVG DETECTION  (§ 3.4)
+// ═══════════════════════════════════════════════════════════════════════════
+// Bullish FVG : low[0] > high[2]   (gap between high of 2 bars ago and low now)
+// Bearish FVG : high[0] < low[2]   (gap between low of 2 bars ago and high now)
+
+is_bull_fvg = barstate.isconfirmed and low > high[2]
+is_bear_fvg = barstate.isconfirmed and high < low[2]
+
+// Create new bull FVG
+if show_fvg and is_bull_fvg
+    // Cap list size to prevent memory bloat
+    if array.size(fvgs) >= MAX_ACTIVE_FVGS
+        oldest = array.shift(fvgs)
+        box.delete(oldest.viz)
+    new_fvg_bull = FVG.new(
+         top         = low,
+         bottom      = high[2],
+         created_bar = bar_index,
+         direction   = "bull",
+         mitigated   = false,
+         inverted    = false,
+         viz         = box.new(
+              left         = bar_index - 2,
+              top          = low,
+              right        = bar_index + fvg_age_max,
+              bottom       = high[2],
+              bgcolor      = color.new(col_bull, 85),
+              border_color = color.new(col_bull, 40),
+              border_width = 1,
+              extend       = extend.none))
+    array.push(fvgs, new_fvg_bull)
+
+// Create new bear FVG
+if show_fvg and is_bear_fvg
+    if array.size(fvgs) >= MAX_ACTIVE_FVGS
+        oldest = array.shift(fvgs)
+        box.delete(oldest.viz)
+    new_fvg_bear = FVG.new(
+         top         = low[2],
+         bottom      = high,
+         created_bar = bar_index,
+         direction   = "bear",
+         mitigated   = false,
+         inverted    = false,
+         viz         = box.new(
+              left         = bar_index - 2,
+              top          = low[2],
+              right        = bar_index + fvg_age_max,
+              bottom       = high,
+              bgcolor      = color.new(col_bear, 85),
+              border_color = color.new(col_bear, 40),
+              border_width = 1,
+              extend       = extend.none))
+    array.push(fvgs, new_fvg_bear)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.4] FVG MITIGATION + IFVG TRACKING
+// ═══════════════════════════════════════════════════════════════════════════
+
+if array.size(fvgs) > 0 and barstate.isconfirmed
+    // Iterate in reverse so we can safely remove
+    for i = array.size(fvgs) - 1 to 0
+        if i < array.size(fvgs)
+            fvg = array.get(fvgs, i)
+
+            // Expire old FVGs
+            if bar_index - fvg.created_bar > fvg_age_max
+                box.delete(fvg.viz)
+                array.remove(fvgs, i)
+                continue
+
+            // IFVG detection (closed through by body) — check BEFORE mitigation
+            if show_ifvg and not fvg.inverted
+                became_ifvg = false
+                if fvg.direction == "bull" and close < fvg.bottom
+                    fvg.inverted := true
+                    became_ifvg  := true
+                if fvg.direction == "bear" and close > fvg.top
+                    fvg.inverted := true
+                    became_ifvg  := true
+                if became_ifvg
+                    box.set_bgcolor(fvg.viz, C_IFVG_BG)
+                    box.set_border_color(fvg.viz, C_IFVG_BORDER)
+                    box.set_right(fvg.viz, bar_index + fvg_age_max)
+                    array.set(fvgs, i, fvg)
+
+            // Mitigation tracking (price enters FVG zone)
+            if not fvg.mitigated and not fvg.inverted
+                is_mit_now = false
+                if fvg.direction == "bull" and low <= fvg.top
+                    fvg.mitigated := true
+                    is_mit_now    := true
+                if fvg.direction == "bear" and high >= fvg.bottom
+                    fvg.mitigated := true
+                    is_mit_now    := true
+                if is_mit_now
+                    // Fade the FVG to indicate it has been tested
+                    box.set_bgcolor(fvg.viz, color.new(fvg.direction == "bull" ? col_bull : col_bear, 93))
+                    array.set(fvgs, i, fvg)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.5] ORDER BLOCK DETECTION  (§ 3.4 — strict mode if enabled)
+// ═══════════════════════════════════════════════════════════════════════════
+// OB strict conditions (all 3 required if ob_require_3_conditions) :
+//   (a) Liquidity sweep : the move after took out a recent high/low
+//   (b) Delivered a FVG : the move was impulsive enough to leave a gap
+//   (c) Created a BOS  : closed beyond the prior swing
+
+// Bullish OB candidate : previous bearish candle followed by impulsive bullish move
+bull_ob_candidate = barstate.isconfirmed and close[1] < open[1] and close > open and close > high[1]
+bear_ob_candidate = barstate.isconfirmed and close[1] > open[1] and close < open and close < low[1]
+
+// Strict condition checks
+swept_lows_recent  = not na(last_sl) and low[1]  < last_sl
+swept_highs_recent = not na(last_sh) and high[1] > last_sh
+bos_bull_now       = not na(last_sh) and close > last_sh
+bos_bear_now       = not na(last_sl) and close < last_sl
+
+// Bullish OB = swept recent low + created BOS upward + impulsive (FVG implicit)
+bull_ob_strict = bull_ob_candidate and swept_lows_recent and bos_bull_now
+bear_ob_strict = bear_ob_candidate and swept_highs_recent and bos_bear_now
+
+// Apply strict mode gate
+bull_ob_valid = ob_require_3_conditions ? bull_ob_strict : bull_ob_candidate
+bear_ob_valid = ob_require_3_conditions ? bear_ob_strict : bear_ob_candidate
+
+// Create bull OB
+if show_ob and bull_ob_valid
+    if array.size(obs) >= MAX_ACTIVE_OBS
+        oldest_ob = array.shift(obs)
+        box.delete(oldest_ob.viz)
+    new_ob_bull = OB.new(
+         top          = high[1],
+         bottom       = low[1],
+         created_bar  = bar_index - 1,
+         direction    = "bull",
+         mitigated    = false,
+         broken       = false,
+         strict_valid = bull_ob_strict,
+         viz          = box.new(
+              left         = bar_index - 1,
+              top          = high[1],
+              right        = bar_index + fvg_age_max,
+              bottom       = low[1],
+              bgcolor      = color.new(col_bull, 80),
+              border_color = color.new(col_bull, 20),
+              border_width = 2,
+              text         = "OB",
+              text_color   = color.new(col_bull, 0),
+              text_size    = size.tiny,
+              text_halign  = text.align_left,
+              extend       = extend.none))
+    array.push(obs, new_ob_bull)
+
+// Create bear OB
+if show_ob and bear_ob_valid
+    if array.size(obs) >= MAX_ACTIVE_OBS
+        oldest_ob = array.shift(obs)
+        box.delete(oldest_ob.viz)
+    new_ob_bear = OB.new(
+         top          = high[1],
+         bottom       = low[1],
+         created_bar  = bar_index - 1,
+         direction    = "bear",
+         mitigated    = false,
+         broken       = false,
+         strict_valid = bear_ob_strict,
+         viz          = box.new(
+              left         = bar_index - 1,
+              top          = high[1],
+              right        = bar_index + fvg_age_max,
+              bottom       = low[1],
+              bgcolor      = color.new(col_bear, 80),
+              border_color = color.new(col_bear, 20),
+              border_width = 2,
+              text         = "OB",
+              text_color   = color.new(col_bear, 0),
+              text_size    = size.tiny,
+              text_halign  = text.align_left,
+              extend       = extend.none))
+    array.push(obs, new_ob_bear)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.6] OB MITIGATION + BREAKER BLOCK (BB) PROMOTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+if array.size(obs) > 0 and barstate.isconfirmed
+    for i = array.size(obs) - 1 to 0
+        if i < array.size(obs)
+            ob = array.get(obs, i)
+
+            // Expire old OBs
+            if bar_index - ob.created_bar > fvg_age_max * 2
+                box.delete(ob.viz)
+                array.remove(obs, i)
+                continue
+
+            // Mitigation : price returned inside OB
+            if not ob.mitigated and not ob.broken
+                hit_bull = ob.direction == "bull" and low <= ob.top and high >= ob.bottom
+                hit_bear = ob.direction == "bear" and high >= ob.bottom and low <= ob.top
+                if hit_bull or hit_bear
+                    ob.mitigated := true
+                    array.set(obs, i, ob)
+
+            // BB promotion : OB broken (close through on opposite direction)
+            if show_bb and not ob.broken
+                bb_bull_now = ob.direction == "bull" and close < ob.bottom
+                bb_bear_now = ob.direction == "bear" and close > ob.top
+                if bb_bull_now or bb_bear_now
+                    ob.broken := true
+                    box.set_bgcolor(ob.viz, C_BB_BG)
+                    box.set_border_color(ob.viz, C_BB_BORDER)
+                    box.set_text(ob.viz, "BB")
+                    array.set(obs, i, ob)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.b.7] ACTIVE ZONES SUMMARY (for HUD)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Count active unmitigated FVGs by direction
+active_bull_fvg_count = 0
+active_bear_fvg_count = 0
+active_ifvg_count     = 0
+if array.size(fvgs) > 0
+    for i = 0 to array.size(fvgs) - 1
+        fvg_check = array.get(fvgs, i)
+        if not fvg_check.mitigated and not fvg_check.inverted
+            if fvg_check.direction == "bull"
+                active_bull_fvg_count := active_bull_fvg_count + 1
+            else
+                active_bear_fvg_count := active_bear_fvg_count + 1
+        if fvg_check.inverted
+            active_ifvg_count := active_ifvg_count + 1
+
+// Count active OBs and BBs
+active_bull_ob_count = 0
+active_bear_ob_count = 0
+active_bb_count      = 0
+if array.size(obs) > 0
+    for i = 0 to array.size(obs) - 1
+        ob_check = array.get(obs, i)
+        if not ob_check.mitigated and not ob_check.broken
+            if ob_check.direction == "bull"
+                active_bull_ob_count := active_bull_ob_count + 1
+            else
+                active_bear_ob_count := active_bear_ob_count + 1
+        if ob_check.broken
+            active_bb_count := active_bb_count + 1
+
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2] ICT STRUCTURE  (BOS, CHoCH, CISD, MSS)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -633,18 +928,29 @@ _col_touch10 = color.new(col_kz_asia, 0)
 var label _check_label = na
 if (barstate.islastconfirmedhistory or barstate.islast) and show_dashboard
     label.delete(_check_label)
-    _hud_txt = "🎯 ICT v1 · Phase A.2.a\n"
+    _hud_txt = "🎯 ICT v1 · A.2.b\n"
+             + "══════════════════\n"
+             + "📍 OPENS\n"
+             + "  Midnight : " + (na(midnight_open) ? "—" : str.tostring(midnight_open, format.mintick)) + "\n"
+             + "  Weekly   : " + (na(weekly_open)   ? "—" : str.tostring(weekly_open, format.mintick))   + "\n"
              + "──────────────────\n"
-             + "Midnight Open : " + (na(midnight_open) ? "—" : str.tostring(midnight_open, format.mintick)) + "\n"
-             + "Weekly Open   : " + (na(weekly_open)   ? "—" : str.tostring(weekly_open, format.mintick))   + "\n"
+             + "🎲 POWER OF THREE\n"
+             + "  Prev D  : " + po3_daily_prev_dir  + "\n"
+             + "  Prev W  : " + po3_weekly_prev_dir + "\n"
+             + "  Phase   : " + po3_current_phase   + "\n"
              + "──────────────────\n"
-             + "PO3 Prev Day  : " + po3_daily_prev_dir  + "\n"
-             + "PO3 Prev Week : " + po3_weekly_prev_dir + "\n"
-             + "Current Phase : " + po3_current_phase   + "\n"
+             + "⏰ KILLZONE\n"
+             + "  " + current_kz + "\n"
              + "──────────────────\n"
-             + "KZ Active     : " + current_kz          + "\n"
-             + "Last Swing H  : " + (na(last_sh) ? "—" : str.tostring(last_sh, format.mintick)) + "\n"
-             + "Last Swing L  : " + (na(last_sl) ? "—" : str.tostring(last_sl, format.mintick))
+             + "📦 PD ARRAYS (active)\n"
+             + "  FVG bull : " + str.tostring(active_bull_fvg_count) + "  ·  bear : " + str.tostring(active_bear_fvg_count) + "\n"
+             + "  IFVG    : " + str.tostring(active_ifvg_count) + "\n"
+             + "  OB bull : " + str.tostring(active_bull_ob_count) + "  ·  bear : " + str.tostring(active_bear_ob_count) + "\n"
+             + "  BB      : " + str.tostring(active_bb_count) + "\n"
+             + "──────────────────\n"
+             + "📈 SWINGS\n"
+             + "  H : " + (na(last_sh) ? "—" : str.tostring(last_sh, format.mintick)) + "\n"
+             + "  L : " + (na(last_sl) ? "—" : str.tostring(last_sl, format.mintick))
     _check_label := label.new(
          bar_index, high,
          _hud_txt,
