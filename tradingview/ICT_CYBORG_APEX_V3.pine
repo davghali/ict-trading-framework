@@ -846,10 +846,8 @@ bgcolor(show_kz    and in_ny_pm                      ? color.new(color.red,    9
 bgcolor(show_kz    and in_asia                       ? color.new(color.purple, 97) : na, title = "BG Asia")
 bgcolor(show_macro and in_macro and not clean_mode   ? C_MACRO                     : na, title = "BG Macro")
 
-// BIG visual flash on S or A+ setup active
-flash_col = grade_v3 == "S" and (setup_bull or setup_bear) ? color.new(#9C27B0, 75) :
-            grade_v3 == "A+" and (setup_bull or setup_bear) ? color.new(#00E676, 80) :
-            grade_v3 == "A" and (setup_bull or setup_bear) and not clean_mode ? color.new(#FFC107, 90) : na
+// BIG visual flash on S or A+ setup active (one-line ternary - Pine multi-line unreliable)
+flash_col = grade_v3 == "S" and (setup_bull or setup_bear) ? color.new(#9C27B0, 75) : grade_v3 == "A+" and (setup_bull or setup_bear) ? color.new(#00E676, 80) : grade_v3 == "A" and (setup_bull or setup_bear) and not clean_mode ? color.new(#FFC107, 90) : na
 bgcolor(flash_col, title = "BG Grade Flash")
 
 // ============================================================================
