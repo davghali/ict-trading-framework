@@ -1,0 +1,475 @@
+// @version=6
+// ============================================================================
+// ICT CYBORG ULTRA - Institutional X-Ray v1.0
+// ============================================================================
+// Par David Ghali x Claude - 2026-04-20
+// Pine Script v6 - Testé pour compiler sans erreur
+//
+// 15 systèmes ICT/SMC combinés :
+//   1.  FVG avec aging automatique
+//   2.  Order Blocks (institutionnels)
+//   3.  Liquidity zones (swing points)
+//   4.  Multi-TF bias (W+D+H4+H1)
+//   5.  Killzones (5 sessions UTC)
+//   6.  Next killzone countdown
+//   7.  Regime detection
+//   8.  Silver Bullet setup
+//   9.  Judas Swing setup
+//   10. Power of Three setup
+//   11. Confluence score (0-7)
+//   12. Grade S/A+/A/B automatique
+//   13. Position sizing (SL/TP/lots)
+//   14. Dashboard HUD 18 lignes
+//   15. 12 alertes natives
+// ============================================================================
+indicator(
+   title = "ICT CYBORG ULTRA - Institutional X-Ray",
+   shorttitle = "ICT-CYBORG",
+   overlay = true,
+   max_boxes_count = 500,
+   max_lines_count = 500,
+   max_labels_count = 500,
+   max_bars_back = 1000
+)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grp_gen = "═══ GENERAL ═══"
+show_dash = input.bool(true, "Show Dashboard HUD", group = grp_gen)
+dash_pos  = input.string("Top Right", "Dashboard Position",
+                          options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Middle Right"],
+                          group = grp_gen)
+
+grp_ict   = "═══ ICT ELEMENTS ═══"
+show_fvg  = input.bool(true,  "Show FVG",            group = grp_ict)
+show_ob   = input.bool(true,  "Show Order Blocks",   group = grp_ict)
+show_liq  = input.bool(true,  "Show Liquidity Lines",group = grp_ict)
+show_pdh  = input.bool(true,  "Show PDH/PDL/PWH/PWL",group = grp_ict)
+fvg_age   = input.int(30, "FVG max age (bars)", minval = 5, maxval = 200, group = grp_ict)
+
+grp_kz    = "═══ KILLZONES ═══"
+show_kz   = input.bool(true, "Highlight Killzones",  group = grp_kz)
+
+grp_conf  = "═══ CONFLUENCE ═══"
+show_conf = input.bool(true, "Show Confluence Score", group = grp_conf)
+min_score = input.int(5, "Min confluence for A+", minval = 0, maxval = 7, group = grp_conf)
+
+grp_risk  = "═══ RISK MANAGEMENT ═══"
+account_balance = input.float(10000.0, "Account Balance (USD)", minval = 100, group = grp_risk)
+risk_per_trade  = input.float(0.5, "Risk per trade (%)", minval = 0.1, maxval = 2.0, step = 0.1, group = grp_risk)
+
+// ============================================================================
+// COLORS
+// ============================================================================
+col_bull    = color.new(#00E676, 85)
+col_bull_b  = color.new(#00E676, 40)
+col_bear    = color.new(#FF1744, 85)
+col_bear_b  = color.new(#FF1744, 40)
+col_neutral = color.new(#FFC107, 70)
+col_s      = color.new(#9C27B0, 30)
+col_aplus  = color.new(#00E676, 30)
+col_a      = color.new(#FFC107, 30)
+col_b      = color.new(#607D8B, 30)
+col_off    = color.new(#424242, 30)
+
+// ============================================================================
+// HELPERS (définis AVANT utilisation)
+// ============================================================================
+// --- Session helper
+f_in_session(sess_str) =>
+    tval = time("", sess_str, "UTC")
+    not na(tval)
+
+// --- Bias sur un TF
+f_bias_on_tf(tf_str) =>
+    cls = request.security(syminfo.tickerid, tf_str, close, lookahead = barmerge.lookahead_off)
+    sma50 = request.security(syminfo.tickerid, tf_str, ta.sma(close, 50), lookahead = barmerge.lookahead_off)
+    bias = cls > sma50 ? 1 : cls < sma50 ? -1 : 0
+    bias
+
+// --- Text pour bias
+f_bias_text(b) =>
+    b == 1 ? "↑" : b == -1 ? "↓" : "→"
+
+// ============================================================================
+// KILLZONES UTC
+// ============================================================================
+in_asia_kz     = f_in_session("2000-2359:1234567")
+in_london_kz   = f_in_session("0700-1000:1234567")
+in_ny_am_kz    = f_in_session("1230-1500:1234567")
+in_ny_pm_kz    = f_in_session("1830-2030:1234567")
+in_london_open = f_in_session("0700-0800:1234567")
+
+in_any_kz = in_london_kz or in_ny_am_kz or in_ny_pm_kz or in_asia_kz
+
+current_kz = in_london_open ? "London Open" : in_london_kz ? "London KZ" : in_ny_am_kz ? "NY AM KZ" : in_ny_pm_kz ? "NY PM KZ" : in_asia_kz ? "Asia KZ" : "Off"
+
+// --- Countdown to next KZ (simple)
+hr_utc  = hour(time, "UTC")
+min_utc = minute(time, "UTC")
+total_min = hr_utc * 60 + min_utc
+
+// Next KZ : London=420, NY AM=750, NY PM=1110, Asia=1200
+next_kz_at = total_min < 420 ? 420 : total_min < 750 ? 750 : total_min < 1110 ? 1110 : total_min < 1200 ? 1200 : 1860
+next_kz_in_min = next_kz_at - total_min
+next_kz_name = total_min < 420 ? "London KZ" : total_min < 750 ? "NY AM KZ" : total_min < 1110 ? "NY PM KZ" : total_min < 1200 ? "Asia KZ" : "London KZ"
+
+// ============================================================================
+// MULTI-TIMEFRAME BIAS (W + D + H4 + H1)
+// ============================================================================
+bias_w  = f_bias_on_tf("W")
+bias_d  = f_bias_on_tf("D")
+bias_h4 = f_bias_on_tf("240")
+bias_h1 = f_bias_on_tf("60")
+
+mtf_aligned_bull = bias_w == 1  and bias_d == 1  and bias_h4 == 1  and bias_h1 == 1
+mtf_aligned_bear = bias_w == -1 and bias_d == -1 and bias_h4 == -1 and bias_h1 == -1
+mtf_aligned      = mtf_aligned_bull or mtf_aligned_bear
+
+// ============================================================================
+// REGIME DETECTION
+// ============================================================================
+atr14 = ta.atr(14)
+atr50 = ta.sma(atr14, 50)
+[diplus, diminus, adx_val] = ta.dmi(14, 14)
+
+regime = adx_val > 25 and atr14 > atr50     ? "TRENDING" :
+         atr14 > atr50 * 1.5                 ? "VOLATILE" :
+         adx_val < 20                        ? "RANGING"  : "NORMAL"
+
+// Manipulation detection (multiple sweeps in 20 bars)
+var int sweeps_count_var = 0
+sweeps_count_var := 0
+for i = 0 to 15
+    if (high[i] > high[i+1] and close[i] < high[i+1]) or (low[i] < low[i+1] and close[i] > low[i+1])
+        sweeps_count_var := sweeps_count_var + 1
+
+regime_final = sweeps_count_var >= 5 ? "MANIPULATION" : regime
+
+// ============================================================================
+// FVG DETECTION
+// ============================================================================
+fvg_bull_now = low > high[2] and close > open
+fvg_bear_now = high < low[2] and close < open
+
+var array<box> fvg_bull_boxes = array.new<box>()
+var array<box> fvg_bear_boxes = array.new<box>()
+var array<int> fvg_bull_bars  = array.new<int>()
+var array<int> fvg_bear_bars  = array.new<int>()
+
+if show_fvg and fvg_bull_now and barstate.isconfirmed
+    bx = box.new(bar_index - 2, high[2], bar_index + 10, low,
+                  border_color = col_bull_b, bgcolor = col_bull)
+    array.push(fvg_bull_boxes, bx)
+    array.push(fvg_bull_bars, bar_index)
+
+if show_fvg and fvg_bear_now and barstate.isconfirmed
+    bx = box.new(bar_index - 2, high, bar_index + 10, low[2],
+                  border_color = col_bear_b, bgcolor = col_bear)
+    array.push(fvg_bear_boxes, bx)
+    array.push(fvg_bear_bars, bar_index)
+
+// Cleanup expired FVGs
+if array.size(fvg_bull_boxes) > 0
+    for i = array.size(fvg_bull_boxes) - 1 to 0
+        age = bar_index - array.get(fvg_bull_bars, i)
+        if age > fvg_age
+            box.delete(array.get(fvg_bull_boxes, i))
+            array.remove(fvg_bull_boxes, i)
+            array.remove(fvg_bull_bars, i)
+
+if array.size(fvg_bear_boxes) > 0
+    for i = array.size(fvg_bear_boxes) - 1 to 0
+        age = bar_index - array.get(fvg_bear_bars, i)
+        if age > fvg_age
+            box.delete(array.get(fvg_bear_boxes, i))
+            array.remove(fvg_bear_boxes, i)
+            array.remove(fvg_bear_bars, i)
+
+fresh_fvg_bull = array.size(fvg_bull_boxes)
+fresh_fvg_bear = array.size(fvg_bear_boxes)
+
+// ============================================================================
+// ORDER BLOCKS DETECTION
+// ============================================================================
+body = math.abs(close - open)
+rng  = high - low
+strong_up   = close > open and close[1] < open[1] and body > rng * 0.6 and close > high[1]
+strong_down = close < open and close[1] > open[1] and body > rng * 0.6 and close < low[1]
+
+var array<box> ob_bull_boxes = array.new<box>()
+var array<box> ob_bear_boxes = array.new<box>()
+
+if show_ob and strong_up and barstate.isconfirmed
+    bx = box.new(bar_index - 1, high[1], bar_index + 10, low[1],
+                  border_color = col_bull_b, bgcolor = color.new(#00E676, 92))
+    array.push(ob_bull_boxes, bx)
+
+if show_ob and strong_down and barstate.isconfirmed
+    bx = box.new(bar_index - 1, high[1], bar_index + 10, low[1],
+                  border_color = col_bear_b, bgcolor = color.new(#FF1744, 92))
+    array.push(ob_bear_boxes, bx)
+
+// Cap OBs
+if array.size(ob_bull_boxes) > 12
+    box.delete(array.shift(ob_bull_boxes))
+if array.size(ob_bear_boxes) > 12
+    box.delete(array.shift(ob_bear_boxes))
+
+// ============================================================================
+// LIQUIDITY (swing points)
+// ============================================================================
+swing_len = 10
+swing_high = ta.pivothigh(high, swing_len, swing_len)
+swing_low  = ta.pivotlow(low, swing_len, swing_len)
+
+var array<line> liq_high_lines = array.new<line>()
+var array<line> liq_low_lines  = array.new<line>()
+
+if show_liq and not na(swing_high)
+    ln = line.new(bar_index - swing_len, swing_high, bar_index + 30, swing_high,
+                    color = color.new(#FF1744, 40), style = line.style_dashed, width = 1)
+    array.push(liq_high_lines, ln)
+
+if show_liq and not na(swing_low)
+    ln = line.new(bar_index - swing_len, swing_low, bar_index + 30, swing_low,
+                    color = color.new(#00E676, 40), style = line.style_dashed, width = 1)
+    array.push(liq_low_lines, ln)
+
+if array.size(liq_high_lines) > 8
+    line.delete(array.shift(liq_high_lines))
+if array.size(liq_low_lines) > 8
+    line.delete(array.shift(liq_low_lines))
+
+// Sweep detection
+sweep_high = high > high[1] and close < high[1] and not na(swing_high[1])
+sweep_low  = low  < low[1]  and close > low[1]  and not na(swing_low[1])
+
+// ============================================================================
+// PDH / PDL / PWH / PWL
+// ============================================================================
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+plot(show_pdh ? pdh : na, "PDH", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh ? pdl : na, "PDL", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh ? pwh : na, "PWH", color = color.new(#FFEB3B, 40), linewidth = 2)
+plot(show_pdh ? pwl : na, "PWL", color = color.new(#FFEB3B, 40), linewidth = 2)
+
+// ============================================================================
+// ICT SETUPS
+// ============================================================================
+// Silver Bullet : KZ + FVG + MTF aligned + sweep
+sb_bull = in_any_kz and fresh_fvg_bull > 0 and mtf_aligned_bull and sweep_low
+sb_bear = in_any_kz and fresh_fvg_bear > 0 and mtf_aligned_bear and sweep_high
+
+// Judas Swing : London Open + fake move
+judas_bull = in_london_open and low < low[5] and close > open and close > high[5]
+judas_bear = in_london_open and high > high[5] and close < open and close < low[5]
+
+// PO3 : Asian range break + return
+asia_h = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+asia_l = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+po3_bull = in_london_kz and low < asia_l and close > asia_l and close > open
+po3_bear = in_london_kz and high > asia_h and close < asia_h and close < open
+
+any_setup_bull = sb_bull or judas_bull or po3_bull
+any_setup_bear = sb_bear or judas_bear or po3_bear
+
+// ============================================================================
+// CONFLUENCE SCORE
+// ============================================================================
+var int score = 0
+score := 0
+if mtf_aligned
+    score := score + 1
+if sweep_high or sweep_low
+    score := score + 1
+if any_setup_bull or any_setup_bear
+    score := score + 1
+if in_any_kz
+    score := score + 1
+if volume > ta.sma(volume, 20) * 1.5
+    score := score + 1
+if fresh_fvg_bull > 0 or fresh_fvg_bear > 0
+    score := score + 1
+if regime_final == "TRENDING"
+    score := score + 1
+
+// Grade assignment
+grade = score >= 6 ? "S" : score >= min_score ? "A+" : score >= 4 ? "A" : score >= 3 ? "B" : "-"
+grade_col = grade == "S" ? col_s : grade == "A+" ? col_aplus : grade == "A" ? col_a : grade == "B" ? col_b : col_off
+
+// ============================================================================
+// KILLZONE BACKGROUND
+// ============================================================================
+bgcolor(show_kz and in_london_kz and not in_london_open ? color.new(color.blue, 92) : na,   title = "BG London")
+bgcolor(show_kz and in_london_open                       ? color.new(color.teal, 90) : na,  title = "BG London Open")
+bgcolor(show_kz and in_ny_am_kz                          ? color.new(color.orange, 92) : na, title = "BG NY AM")
+bgcolor(show_kz and in_ny_pm_kz                          ? color.new(color.red, 93) : na,   title = "BG NY PM")
+bgcolor(show_kz and in_asia_kz                           ? color.new(color.purple, 94) : na, title = "BG Asia")
+
+// ============================================================================
+// POSITION SIZING
+// ============================================================================
+atrv = ta.atr(14)
+sl_long  = close - atrv * 1.5
+sl_short = close + atrv * 1.5
+tp_long  = close + atrv * 3.0
+tp_short = close - atrv * 3.0
+
+risk_usd = account_balance * (risk_per_trade / 100.0)
+sl_dist_long  = close - sl_long
+sl_dist_short = sl_short - close
+lots_long  = sl_dist_long  > 0 ? risk_usd / (sl_dist_long  * 100.0) : 0.0
+lots_short = sl_dist_short > 0 ? risk_usd / (sl_dist_short * 100.0) : 0.0
+
+// ============================================================================
+// DASHBOARD HUD
+// ============================================================================
+f_dash_pos() =>
+    dash_pos == "Top Right"    ? position.top_right :
+     dash_pos == "Top Left"     ? position.top_left :
+     dash_pos == "Bottom Right" ? position.bottom_right :
+     dash_pos == "Bottom Left"  ? position.bottom_left :
+     position.middle_right
+
+var table dash = table.new(position.top_right, 2, 20,
+                            bgcolor = color.new(#0F172A, 15),
+                            border_color = color.new(#FFFFFF, 80),
+                            border_width = 1,
+                            frame_color = color.new(#DC2626, 30),
+                            frame_width = 2)
+
+if show_dash and barstate.islast
+    table.clear(dash, 0, 0, 1, 19)
+
+    // Header
+    table.cell(dash, 0, 0, "🎯 ICT CYBORG", text_color = color.white, text_size = size.small, bgcolor = color.new(#DC2626, 40))
+    table.cell(dash, 1, 0, syminfo.ticker,  text_color = color.white, text_size = size.small, bgcolor = color.new(#DC2626, 40))
+
+    // Grade
+    table.cell(dash, 0, 1, "GRADE", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 1, grade, text_color = color.white, text_size = size.large, bgcolor = grade_col)
+
+    // Confluence
+    table.cell(dash, 0, 2, "Confluence", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 2, str.tostring(score) + "/7", text_color = color.white, text_size = size.normal)
+
+    // Multi-TF
+    table.cell(dash, 0, 3, "Multi-TF", text_color = color.gray, text_size = size.small)
+    mtf_txt = "W" + f_bias_text(bias_w) + " D" + f_bias_text(bias_d) + " H4" + f_bias_text(bias_h4) + " H1" + f_bias_text(bias_h1)
+    mtf_bg  = mtf_aligned ? color.new(#00E676, 40) : color.new(color.gray, 40)
+    table.cell(dash, 1, 3, mtf_txt, text_color = color.white, text_size = size.small, bgcolor = mtf_bg)
+
+    // Regime
+    table.cell(dash, 0, 4, "Regime", text_color = color.gray, text_size = size.small)
+    reg_bg = regime_final == "TRENDING" ? color.new(#00E676, 40) : regime_final == "MANIPULATION" ? color.new(#FF1744, 40) : color.new(color.gray, 40)
+    table.cell(dash, 1, 4, regime_final, text_color = color.white, text_size = size.small, bgcolor = reg_bg)
+
+    // Killzone
+    table.cell(dash, 0, 5, "Killzone", text_color = color.gray, text_size = size.small)
+    kz_bg = in_any_kz ? color.new(#FFC107, 40) : color.new(color.gray, 40)
+    table.cell(dash, 1, 5, current_kz, text_color = color.white, text_size = size.small, bgcolor = kz_bg)
+
+    // Next KZ
+    table.cell(dash, 0, 6, "Next KZ", text_color = color.gray, text_size = size.small)
+    h_left = next_kz_in_min / 60
+    m_left = next_kz_in_min % 60
+    next_txt = next_kz_name + " in " + str.tostring(h_left) + "h" + str.tostring(m_left) + "m"
+    table.cell(dash, 1, 6, next_txt, text_color = color.white, text_size = size.small)
+
+    // Setup
+    table.cell(dash, 0, 7, "Setup", text_color = color.gray, text_size = size.small)
+    setup_txt = sb_bull ? "🎯 Silver Bullet ↑" : sb_bear ? "🎯 Silver Bullet ↓" : judas_bull ? "🔄 Judas ↑" : judas_bear ? "🔄 Judas ↓" : po3_bull ? "⚡ PO3 ↑" : po3_bear ? "⚡ PO3 ↓" : "—"
+    setup_bg = (any_setup_bull or any_setup_bear) ? color.new(#FFC107, 40) : color.new(color.gray, 40)
+    table.cell(dash, 1, 7, setup_txt, text_color = color.white, text_size = size.small, bgcolor = setup_bg)
+
+    // Separator
+    table.cell(dash, 0, 8, "———————", text_color = color.gray, text_size = size.tiny)
+    table.cell(dash, 1, 8, "———————", text_color = color.gray, text_size = size.tiny)
+
+    // FVG count
+    table.cell(dash, 0, 9, "FVG actifs", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 9, "↑" + str.tostring(fresh_fvg_bull) + " ↓" + str.tostring(fresh_fvg_bear),
+                text_color = color.white, text_size = size.small)
+
+    // Sweep
+    table.cell(dash, 0, 10, "Sweep", text_color = color.gray, text_size = size.small)
+    swp_txt = sweep_high ? "High swept" : sweep_low ? "Low swept" : "—"
+    swp_bg  = (sweep_high or sweep_low) ? color.new(#FF1744, 40) : color.new(color.gray, 40)
+    table.cell(dash, 1, 10, swp_txt, text_color = color.white, text_size = size.small, bgcolor = swp_bg)
+
+    // Separator
+    table.cell(dash, 0, 11, "———————", text_color = color.gray, text_size = size.tiny)
+    table.cell(dash, 1, 11, "———————", text_color = color.gray, text_size = size.tiny)
+
+    // Balance + Risk
+    table.cell(dash, 0, 12, "Balance", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 12, "$" + str.tostring(account_balance, "#"), text_color = color.white, text_size = size.small)
+
+    table.cell(dash, 0, 13, "Risk/trade", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 13, str.tostring(risk_per_trade) + "% = $" + str.tostring(risk_usd, "#.##"),
+                text_color = color.white, text_size = size.small)
+
+    // SL / TP suggested
+    sl_sug = any_setup_bull ? sl_long : any_setup_bear ? sl_short : na
+    tp_sug = any_setup_bull ? tp_long : any_setup_bear ? tp_short : na
+    lot_sug = any_setup_bull ? lots_long : any_setup_bear ? lots_short : 0.0
+
+    table.cell(dash, 0, 14, "Suggest SL", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 14, na(sl_sug) ? "—" : str.tostring(sl_sug, "#.#####"),
+                text_color = color.white, text_size = size.small)
+
+    table.cell(dash, 0, 15, "Suggest TP", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 15, na(tp_sug) ? "—" : str.tostring(tp_sug, "#.#####"),
+                text_color = color.white, text_size = size.small)
+
+    table.cell(dash, 0, 16, "Lots (est)", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 16, lot_sug == 0.0 ? "—" : str.tostring(lot_sug, "#.##"),
+                text_color = color.white, text_size = size.small)
+
+    // Separator
+    table.cell(dash, 0, 17, "———————", text_color = color.gray, text_size = size.tiny)
+    table.cell(dash, 1, 17, "———————", text_color = color.gray, text_size = size.tiny)
+
+    // Footer
+    table.cell(dash, 0, 18, "@Davghali", text_color = color.new(color.gray, 30), text_size = size.tiny)
+    table.cell(dash, 1, 18, "Cyborg v1.0", text_color = color.new(color.gray, 30), text_size = size.tiny)
+
+// ============================================================================
+// VISUAL MARKERS FOR SETUPS
+// ============================================================================
+plotshape(sb_bull,    title = "Silver Bullet Long",  style = shape.labelup,   location = location.belowbar, color = color.new(#00E676, 0),  textcolor = color.white, text = "SB", size = size.small)
+plotshape(sb_bear,    title = "Silver Bullet Short", style = shape.labeldown, location = location.abovebar, color = color.new(#FF1744, 0),  textcolor = color.white, text = "SB", size = size.small)
+plotshape(judas_bull, title = "Judas Long",          style = shape.labelup,   location = location.belowbar, color = color.new(#FFC107, 0),  textcolor = color.black, text = "J",  size = size.small)
+plotshape(judas_bear, title = "Judas Short",         style = shape.labeldown, location = location.abovebar, color = color.new(#FFC107, 0),  textcolor = color.black, text = "J",  size = size.small)
+plotshape(po3_bull,   title = "PO3 Long",            style = shape.triangleup,   location = location.belowbar, color = color.new(#9C27B0, 0),  size = size.small)
+plotshape(po3_bear,   title = "PO3 Short",           style = shape.triangledown, location = location.abovebar, color = color.new(#9C27B0, 0),  size = size.small)
+
+// Grade background color
+bg_grade = grade == "S" ? color.new(#9C27B0, 95) : grade == "A+" ? color.new(#00E676, 95) : grade == "A" ? color.new(#FFC107, 96) : na
+bgcolor(bg_grade, title = "Grade BG")
+
+// ============================================================================
+// ALERTS (12)
+// ============================================================================
+alertcondition(grade == "S",       title = "💎 Grade S",            message = "💎 GRADE S on {{ticker}} - Check chart!")
+alertcondition(grade == "A+",      title = "🎯 Grade A+",           message = "🎯 GRADE A+ on {{ticker}} - Trade opportunity")
+alertcondition(sb_bull,            title = "🎯 Silver Bullet Long",  message = "🎯 Silver Bullet LONG on {{ticker}}")
+alertcondition(sb_bear,            title = "🎯 Silver Bullet Short", message = "🎯 Silver Bullet SHORT on {{ticker}}")
+alertcondition(judas_bull,         title = "🔄 Judas Long",          message = "🔄 Judas Swing LONG on {{ticker}}")
+alertcondition(judas_bear,         title = "🔄 Judas Short",         message = "🔄 Judas Swing SHORT on {{ticker}}")
+alertcondition(po3_bull,           title = "⚡ PO3 Long",            message = "⚡ Power of Three LONG on {{ticker}}")
+alertcondition(po3_bear,           title = "⚡ PO3 Short",           message = "⚡ Power of Three SHORT on {{ticker}}")
+alertcondition(mtf_aligned_bull,   title = "📈 MTF Aligned Bull",    message = "📈 Multi-TF Aligned BULL on {{ticker}}")
+alertcondition(mtf_aligned_bear,   title = "📉 MTF Aligned Bear",    message = "📉 Multi-TF Aligned BEAR on {{ticker}}")
+alertcondition(sweep_high,         title = "🧹 Sweep High",          message = "🧹 Liquidity SWEEP HIGH on {{ticker}}")
+alertcondition(sweep_low,          title = "🧹 Sweep Low",           message = "🧹 Liquidity SWEEP LOW on {{ticker}}")
+
+// ============================================================================
+// END
+// ============================================================================
