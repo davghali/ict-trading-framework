@@ -77,6 +77,12 @@ except Exception as e:
     AutoExecutionConfig = None
     PositionManager = None
 
+try:
+    from src.utils.tz_display import now_paris, paris_time_short, format_paris
+except Exception:
+    def paris_time_short(dt=None): return datetime.utcnow().strftime("%H:%M")
+    def format_paris(dt=None, fmt="%d/%m/%Y %H:%M:%S"): return datetime.utcnow().strftime(fmt)
+
 # Safety net modules (P1 enhancements)
 try:
     from src.ftmo_guards import ConsistencyTracker
@@ -337,9 +343,11 @@ def run():
         f"*Instruments* : {len(settings.assets_h1) + len(settings.assets_d1)} "
         f"(H1+D1)\n"
         f"*Grade min* : {MIN_GRADE}\n"
-        f"*Scan* : {SCAN_INTERVAL_MIN} min\n\n"
+        f"*Scan* : {SCAN_INTERVAL_MIN} min\n"
+        f"*Demarrage* : {format_paris()} Paris\n"
+        f"*Trading days* : Lundi-Vendredi (fuseau Paris)\n\n"
         "*Commandes* :\n"
-        "• /auto\\_status - état auto-exec\n"
+        "• /auto\\_status - etat auto-exec\n"
         "• /pause - pause ordres auto\n"
         "• /resume - reprise\n"
         "• /positions - positions ouvertes\n"
@@ -393,7 +401,7 @@ def run():
                 if not status.allowed:
                     log.warning(f"[FTMO CONSISTENCY] {status.reason}")
 
-            log.info(f"====== Full Auto scan @ {datetime.utcnow():%H:%M:%S} ======")
+            log.info(f"====== Full Auto scan @ {format_paris()} Paris (= {datetime.utcnow():%H:%M:%S} UTC) ======")
             raw_signals = scanner.scan_once()
 
             enhanced_signals = []
