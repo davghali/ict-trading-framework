@@ -89,7 +89,7 @@ class UserSettings:
 
     @classmethod
     def load(cls) -> "UserSettings":
-        """Charge depuis settings.json + .env. BOM-tolerant."""
+        """Charge depuis settings.json + .env. BOM-tolerant + ignore unknown keys."""
         data = {}
         if SETTINGS_FILE.exists():
             try:
@@ -112,10 +112,12 @@ class UserSettings:
                 k_lower = k.strip().lower()
                 if k_lower in ("discord_webhook_url", "telegram_bot_token", "telegram_chat_id"):
                     data[k_lower] = v.strip()
-        # Fill defaults
+        # Fill defaults + filter unknown keys (extra JSON keys cause TypeError otherwise)
         defaults = cls()
         merged = asdict(defaults)
-        merged.update(data)
+        valid_keys = set(merged.keys())
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+        merged.update(filtered_data)
         return cls(**merged)
 
     def export_env(self) -> dict:
