@@ -5,6 +5,71 @@ Versions follow `v{phase}.{step}-{iteration}` scheme (e.g., `vA.1-1` = Phase A, 
 
 ---
 
+## [vA.2-c+aesthetic-1] — 2026-04-21
+
+### Context
+User feedback : "pas très esthétique". Provided mentor's ICT indicator screenshots
+showing clean pastel FVG zones + dashed lines with right-edge text labels for
+PDH/PDL/PWH/PWL/PMH/PML/00:00/W/M. My V1 visualization was too saturated and
+cluttered with boxed labels.
+
+### Added
+- **[A.2.c] Market Structure** (§ 3.5) :
+  - `structure_trend` state : bull / bear / neutral
+  - `broken_sh_level`, `broken_sl_level` tracking to prevent re-trigger
+  - BOS (Break of Structure) with optional body-close mode
+  - CHoCH (Change of Character) = BOS against current trend
+  - MSS alias for CHoCH
+  - CISD (Change in State of Delivery) = sweep + OB + FVG confirmation
+- **[A.2.d-early] Time-based liquidity levels** (§ 3.3) :
+  - PDH / PDL (Previous Day High/Low) via request.security("D")
+  - PWH / PWL (Previous Week) via request.security("W")
+  - PMH / PML (Previous Month) via request.security("M")
+  - Dashed horizontal lines extending right (mentor-style)
+  - Right-edge text labels ("PDH", "PDL", "PWH", etc.) on last bar only
+  - Indigo / cyan / green palette per period
+
+### AESTHETIC OVERHAUL
+- **HUD : big label → compact table** in top-right corner (no chart clutter)
+  - 12 rows × 2 columns with tiny text
+  - Labels in muted grey-blue, values in white/colored by direction
+  - Gold frame to match existing brand
+- **FVG colors → pastel palette** :
+  - Bull : pastel teal `#4DB6AC` alpha 92
+  - Bear : pastel pink `#F8BBD0` alpha 92
+  - IFVG : pastel purple `#BA68C8` alpha 92
+  - Mitigated : grey `#9E9E9E` alpha 95 (faded)
+- **OB colors → sky blue / pastel red** :
+  - Bull : `#81D4FA` alpha 90
+  - Bear : `#EF9A9A` alpha 90
+  - BB : pastel amber `#FFCC80` alpha 90
+  - Border width reduced from 2 → 1
+  - Removed "OB" and "BB" text in boxes (too cluttered)
+- **Swing H/L labels** : `label.style_label_*` with "H"/"L" → `label.style_circle`
+  - Tiny colored dots above/below bar (subtle, no text box)
+- **BOS/CHoCH labels** : `label.style_label_*` boxed → `label.style_none` (text only)
+  - BOS : tiny size, dotted line from origin
+  - CHoCH : small size, amber color
+  - CISD : simple `▲` / `▼` triangle markers
+- **Midnight Open line** : amber `#FFAB40` dashed + right-edge "00:00" label
+- **Weekly Open line** : green `#66BB6A` dashed + right-edge "W" label
+
+### Decisions
+- **Inline implementation maintained** : no libraries yet (per prior decision)
+- **Right-edge label pattern** : `label.style_none` + `size.small` + anchored `bar_index + 5`
+  on `barstate.islast` only (prevents historical label spam)
+- **BPR deferred** : will implement when building A.2.e (P/D zones + OTE)
+- **Swing lookback** : kept at 10 for now, will make input if needed
+
+### Next (A.2.d-rest + A.2.e)
+- EQH / EQL detection with tolerance (spec § 3.3)
+- Previous KZ High/Low for each session (spec § 3.3)
+- Premium / Discount / Equilibrium zones (spec § 3.6)
+- OTE zone (62-79% Fib)
+- BPR (Balanced Price Range)
+
+---
+
 ## [vA.2-b-1] — 2026-04-21
 
 ### Added

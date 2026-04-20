@@ -9,12 +9,13 @@
 // ║   Spec    : PROMPT_ULTIME_ICT_TRADINGVIEW.md                             ║
 // ║                                                                          ║
 // ║   PHASE ROADMAP :                                                        ║
-// ║     A.1   Skeleton + Inputs                  ✅ DONE                      ║
-// ║     A.2.a Opens + KZ viz + Swings + PO3      ✅ DONE                      ║
-// ║     A.2.b PD Arrays (FVG/IFVG/OB/BB)         ✅ DONE ← YOU ARE HERE       ║
-// ║     A.2.c Structure (BOS/CHoCH/CISD/MSS)                                  ║
-// ║     A.2.d Liquidity (PDH-PDL-PWH-PWL-PMH-PML + EQH/EQL + KZ H/L)          ║
-// ║     A.2.e P/D/E zones + HUD dashboard                                     ║
+// ║     A.1   Skeleton + Inputs                       ✅ DONE                 ║
+// ║     A.2.a Opens + KZ viz + Swings + PO3           ✅ DONE                 ║
+// ║     A.2.b PD Arrays (FVG/IFVG/OB/BB) + pastels   ✅ DONE                  ║
+// ║     A.2.c Structure (BOS/CHoCH/CISD/MSS)          ✅ DONE ← YOU ARE HERE  ║
+// ║     A.2.d-early PDH/PDL/PWH/PWL/PMH/PML           ✅ DONE                 ║
+// ║     A.2.d-rest  EQH/EQL + Previous KZ H/L         🔜 NEXT                 ║
+// ║     A.2.e P/D/E zones + OTE                                               ║
 // ║     A.3  Daily / Weekly bias engine                                      ║
 // ║     A.4  Continuation setup logic                                        ║
 // ║     A.5  Reversal setup logic                                            ║
@@ -383,8 +384,8 @@ if new_day_start and barstate.isconfirmed
     line.delete(midnight_line)
     midnight_line := line.new(
          bar_index, daily_open_ref, bar_index + 1, daily_open_ref,
-         color  = col_neutral,
-         style  = line.style_dotted,
+         color  = color.new(#FFAB40, 50),
+         style  = line.style_dashed,
          width  = 1,
          extend = extend.right)
 
@@ -392,10 +393,31 @@ if new_week_start and barstate.isconfirmed
     line.delete(weekly_line)
     weekly_line := line.new(
          bar_index, weekly_open_ref, bar_index + 1, weekly_open_ref,
-         color  = col_bull,
-         style  = line.style_solid,
-         width  = 2,
+         color  = color.new(#66BB6A, 50),
+         style  = line.style_dashed,
+         width  = 1,
          extend = extend.right)
+
+// Right-edge labels for Midnight / Weekly opens (last bar only)
+var label midnight_lbl = na
+var label weekly_lbl   = na
+if barstate.islast
+    label.delete(midnight_lbl)
+    label.delete(weekly_lbl)
+    if not na(midnight_open)
+        midnight_lbl := label.new(
+             bar_index + 5, midnight_open,
+             "00:00",
+             style     = label.style_none,
+             textcolor = color.new(#FFAB40, 15),
+             size      = size.small)
+    if not na(weekly_open)
+        weekly_lbl := label.new(
+             bar_index + 5, weekly_open,
+             "W",
+             style     = label.style_none,
+             textcolor = color.new(#66BB6A, 15),
+             size      = size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2.a.3] KILLZONES BACKGROUNDS  (§ 3.7)
@@ -433,13 +455,13 @@ var int   last_sl_bar   = na
 if not na(swing_h)
     last_sh     := swing_h
     last_sh_bar := bar_index - swing_lookback
+    // Minimal marker : small dot above the swing (no boxed label)
     if show_labels
         label.new(
              bar_index - swing_lookback, swing_h,
-             "H",
-             style     = label.style_label_down,
+             "",
+             style     = label.style_circle,
              color     = color.new(col_bear, 60),
-             textcolor = color.white,
              size      = size.tiny,
              yloc      = yloc.abovebar)
 
@@ -449,10 +471,9 @@ if not na(swing_l)
     if show_labels
         label.new(
              bar_index - swing_lookback, swing_l,
-             "L",
-             style     = label.style_label_up,
+             "",
+             style     = label.style_circle,
              color     = color.new(col_bull, 60),
-             textcolor = color.white,
              size      = size.tiny,
              yloc      = yloc.belowbar)
 
@@ -543,11 +564,23 @@ var array<OB>  obs  = array.new<OB>()
 MAX_ACTIVE_FVGS = 50
 MAX_ACTIVE_OBS  = 30
 
-// Color for IFVG (distinct from regular FVG)
-C_IFVG_BG     = color.new(#AB47BC, 85)
-C_IFVG_BORDER = color.new(#AB47BC, 30)
-C_BB_BG       = color.new(#FF9800, 80)
-C_BB_BORDER   = color.new(#FF9800, 20)
+// Pastel palette (matches mentor's aesthetic)
+C_FVG_BULL_BG     = color.new(#4DB6AC, 92)   // pastel teal
+C_FVG_BULL_BORDER = color.new(#4DB6AC, 70)
+C_FVG_BEAR_BG     = color.new(#F8BBD0, 92)   // pastel pink
+C_FVG_BEAR_BORDER = color.new(#F8BBD0, 70)
+C_FVG_MIT_BG      = color.new(#9E9E9E, 95)   // greyed out when mitigated
+C_IFVG_BG         = color.new(#BA68C8, 92)   // pastel purple
+C_IFVG_BORDER     = color.new(#BA68C8, 65)
+C_OB_BULL_BG      = color.new(#81D4FA, 90)   // pastel sky blue
+C_OB_BULL_BORDER  = color.new(#81D4FA, 55)
+C_OB_BEAR_BG      = color.new(#EF9A9A, 90)   // pastel red
+C_OB_BEAR_BORDER  = color.new(#EF9A9A, 55)
+C_BB_BG           = color.new(#FFCC80, 90)   // pastel amber
+C_BB_BORDER       = color.new(#FFCC80, 55)
+C_LEVEL_WEEKLY    = color.new(#29B6F6, 40)   // bright blue for weekly
+C_LEVEL_DAILY     = color.new(#7986CB, 40)   // indigo for daily
+C_LEVEL_MONTHLY   = color.new(#66BB6A, 40)   // green for monthly
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2.b.3] FVG DETECTION  (§ 3.4)
@@ -576,8 +609,8 @@ if show_fvg and is_bull_fvg
               top          = low,
               right        = bar_index + fvg_age_max,
               bottom       = high[2],
-              bgcolor      = color.new(col_bull, 85),
-              border_color = color.new(col_bull, 40),
+              bgcolor      = color.new(#4DB6AC, 92),
+              border_color = color.new(#4DB6AC, 70),
               border_width = 1,
               extend       = extend.none))
     array.push(fvgs, new_fvg_bull)
@@ -599,8 +632,8 @@ if show_fvg and is_bear_fvg
               top          = low[2],
               right        = bar_index + fvg_age_max,
               bottom       = high,
-              bgcolor      = color.new(col_bear, 85),
-              border_color = color.new(col_bear, 40),
+              bgcolor      = color.new(#F8BBD0, 92),
+              border_color = color.new(#F8BBD0, 70),
               border_width = 1,
               extend       = extend.none))
     array.push(fvgs, new_fvg_bear)
@@ -646,8 +679,9 @@ if array.size(fvgs) > 0 and barstate.isconfirmed
                     fvg.mitigated := true
                     is_mit_now    := true
                 if is_mit_now
-                    // Fade the FVG to indicate it has been tested
-                    box.set_bgcolor(fvg.viz, color.new(fvg.direction == "bull" ? col_bull : col_bear, 93))
+                    // Fade the FVG to neutral grey when mitigated
+                    box.set_bgcolor(fvg.viz, C_FVG_MIT_BG)
+                    box.set_border_color(fvg.viz, color.new(#9E9E9E, 80))
                     array.set(fvgs, i, fvg)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -694,13 +728,9 @@ if show_ob and bull_ob_valid
               top          = high[1],
               right        = bar_index + fvg_age_max,
               bottom       = low[1],
-              bgcolor      = color.new(col_bull, 80),
-              border_color = color.new(col_bull, 20),
-              border_width = 2,
-              text         = "OB",
-              text_color   = color.new(col_bull, 0),
-              text_size    = size.tiny,
-              text_halign  = text.align_left,
+              bgcolor      = C_OB_BULL_BG,
+              border_color = C_OB_BULL_BORDER,
+              border_width = 1,
               extend       = extend.none))
     array.push(obs, new_ob_bull)
 
@@ -722,13 +752,9 @@ if show_ob and bear_ob_valid
               top          = high[1],
               right        = bar_index + fvg_age_max,
               bottom       = low[1],
-              bgcolor      = color.new(col_bear, 80),
-              border_color = color.new(col_bear, 20),
-              border_width = 2,
-              text         = "OB",
-              text_color   = color.new(col_bear, 0),
-              text_size    = size.tiny,
-              text_halign  = text.align_left,
+              bgcolor      = C_OB_BEAR_BG,
+              border_color = C_OB_BEAR_BORDER,
+              border_width = 1,
               extend       = extend.none))
     array.push(obs, new_ob_bear)
 
@@ -763,7 +789,6 @@ if array.size(obs) > 0 and barstate.isconfirmed
                     ob.broken := true
                     box.set_bgcolor(ob.viz, C_BB_BG)
                     box.set_border_color(ob.viz, C_BB_BORDER)
-                    box.set_text(ob.viz, "BB")
                     array.set(obs, i, ob)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -800,15 +825,289 @@ if array.size(obs) > 0
         if ob_check.broken
             active_bb_count := active_bb_count + 1
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  [A.2.d-early] TIME-BASED LIQUIDITY LEVELS                              ║
+// ║  PDH / PDL / PWH / PWL / PMH / PML  (§ 3.3)                             ║
+// ║  Style : dashed lines + right-edge text labels (mentor aesthetic)        ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// Fetch previous-period extremes
+[pdh_val, pdl_val] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_off)
+[pwh_val, pwl_val] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_off)
+[pmh_val, pml_val] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_off)
+
+// Palette : indigo (D) / cyan (W) / green (M) — mentor-style
+_col_pd_line = color.new(#5C6BC0, 55)   // indigo
+_col_pd_txt  = color.new(#5C6BC0, 10)
+_col_pw_line = color.new(#26C6DA, 55)   // cyan
+_col_pw_txt  = color.new(#26C6DA, 10)
+_col_pm_line = color.new(#66BB6A, 55)   // green
+_col_pm_txt  = color.new(#66BB6A, 10)
+
+new_day_liq   = ta.change(pdh_val) != 0
+new_week_liq  = ta.change(pwh_val) != 0
+new_month_liq = ta.change(pmh_val) != 0
+
+// ──── PDH / PDL ────
+var line  pdh_line = na
+var line  pdl_line = na
+var label pdh_lbl  = na
+var label pdl_lbl  = na
+
+if show_pdh_pdl and new_day_liq and barstate.isconfirmed
+    line.delete(pdh_line)
+    line.delete(pdl_line)
+    pdh_line := line.new(bar_index, pdh_val, bar_index + 1, pdh_val,
+         color = _col_pd_line, style = line.style_dashed, width = 1, extend = extend.right)
+    pdl_line := line.new(bar_index, pdl_val, bar_index + 1, pdl_val,
+         color = _col_pd_line, style = line.style_dashed, width = 1, extend = extend.right)
+
+if show_pdh_pdl and barstate.islast
+    label.delete(pdh_lbl)
+    label.delete(pdl_lbl)
+    if not na(pdh_val)
+        pdh_lbl := label.new(bar_index + 5, pdh_val, "PDH",
+             style = label.style_none, textcolor = _col_pd_txt, size = size.small)
+    if not na(pdl_val)
+        pdl_lbl := label.new(bar_index + 5, pdl_val, "PDL",
+             style = label.style_none, textcolor = _col_pd_txt, size = size.small)
+
+// ──── PWH / PWL ────
+var line  pwh_line = na
+var line  pwl_line = na
+var label pwh_lbl  = na
+var label pwl_lbl  = na
+
+if show_pwh_pwl and new_week_liq and barstate.isconfirmed
+    line.delete(pwh_line)
+    line.delete(pwl_line)
+    pwh_line := line.new(bar_index, pwh_val, bar_index + 1, pwh_val,
+         color = _col_pw_line, style = line.style_dashed, width = 1, extend = extend.right)
+    pwl_line := line.new(bar_index, pwl_val, bar_index + 1, pwl_val,
+         color = _col_pw_line, style = line.style_dashed, width = 1, extend = extend.right)
+
+if show_pwh_pwl and barstate.islast
+    label.delete(pwh_lbl)
+    label.delete(pwl_lbl)
+    if not na(pwh_val)
+        pwh_lbl := label.new(bar_index + 5, pwh_val, "PWH",
+             style = label.style_none, textcolor = _col_pw_txt, size = size.small)
+    if not na(pwl_val)
+        pwl_lbl := label.new(bar_index + 5, pwl_val, "PWL",
+             style = label.style_none, textcolor = _col_pw_txt, size = size.small)
+
+// ──── PMH / PML ────
+var line  pmh_line = na
+var line  pml_line = na
+var label pmh_lbl  = na
+var label pml_lbl  = na
+
+if show_pmh_pml and new_month_liq and barstate.isconfirmed
+    line.delete(pmh_line)
+    line.delete(pml_line)
+    pmh_line := line.new(bar_index, pmh_val, bar_index + 1, pmh_val,
+         color = _col_pm_line, style = line.style_dashed, width = 1, extend = extend.right)
+    pml_line := line.new(bar_index, pml_val, bar_index + 1, pml_val,
+         color = _col_pm_line, style = line.style_dashed, width = 1, extend = extend.right)
+
+if show_pmh_pml and barstate.islast
+    label.delete(pmh_lbl)
+    label.delete(pml_lbl)
+    if not na(pmh_val)
+        pmh_lbl := label.new(bar_index + 5, pmh_val, "PMH",
+             style = label.style_none, textcolor = _col_pm_txt, size = size.small)
+    if not na(pml_val)
+        pml_lbl := label.new(bar_index + 5, pml_val, "PML",
+             style = label.style_none, textcolor = _col_pm_txt, size = size.small)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  [A.2.c] MARKET STRUCTURE — BOS / CHoCH / CISD / MSS  (§ 3.5)           ║
+// ║  Status : IMPLEMENTED ✅                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 // ═══════════════════════════════════════════════════════════════════════════
-// [A.2] ICT STRUCTURE  (BOS, CHoCH, CISD, MSS)
+// [A.2.c.1] TREND / STRUCTURE STATE TRACKER
 // ═══════════════════════════════════════════════════════════════════════════
+// We track the current structural trend : "bull" | "bear" | "neutral".
+// - Updated on each confirmed swing high/low beyond prior structural extreme.
+// - Used to identify BOS (continuation) vs CHoCH (reversal).
+
+var string structure_trend = "neutral"
+
+// Prior structural extremes (last 2 swing highs / lows)
+var float prior_sh   = na    // swing high before last_sh
+var float prior_sl   = na    // swing low before last_sl
+var int   prior_sh_bar = na
+var int   prior_sl_bar = na
+
+// When a new swing H is confirmed, shift last_sh → prior_sh
+// (This uses the swing_h from A.2.a.4 detection)
+if not na(swing_h) and barstate.isconfirmed
+    prior_sh     := last_sh != swing_h ? last_sh : prior_sh
+    prior_sh_bar := last_sh != swing_h ? last_sh_bar : prior_sh_bar
+
+if not na(swing_l) and barstate.isconfirmed
+    prior_sl     := last_sl != swing_l ? last_sl : prior_sl
+    prior_sl_bar := last_sl != swing_l ? last_sl_bar : prior_sl_bar
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.c.2] BOS (Break of Structure) — § 3.5
+// ═══════════════════════════════════════════════════════════════════════════
+// BOS bull : price closes beyond last confirmed swing high
+// BOS bear : price closes beyond last confirmed swing low
+// If bos_body_close = true : requires BODY close (min(open,close) > sh) — stricter
+
+// Track which swing has been broken so we don't re-trigger
+var float broken_sh_level = na
+var float broken_sl_level = na
+
+bos_bull_check = barstate.isconfirmed and not na(last_sh) and last_sh != broken_sh_level
+bos_bear_check = barstate.isconfirmed and not na(last_sl) and last_sl != broken_sl_level
+
+// Body-close version (stricter)
+body_hi = math.max(open, close)
+body_lo = math.min(open, close)
+
+bos_bull_trigger = bos_bull_check and (bos_body_close ? body_hi > last_sh and close > last_sh : close > last_sh)
+bos_bear_trigger = bos_bear_check and (bos_body_close ? body_lo < last_sl and close < last_sl : close < last_sl)
+
+// Visualize BOS : thin dashed line + tiny text label (mentor-style, no box)
+if bos_bull_trigger
+    broken_sh_level := last_sh
+    if show_labels
+        label.new(
+             bar_index, last_sh,
+             "BOS",
+             style     = label.style_none,
+             textcolor = color.new(col_bull, 10),
+             size      = size.tiny)
+        line.new(
+             not na(last_sh_bar) ? last_sh_bar : bar_index - 10, last_sh,
+             bar_index, last_sh,
+             color = color.new(col_bull, 55),
+             style = line.style_dotted,
+             width = 1)
+
+if bos_bear_trigger
+    broken_sl_level := last_sl
+    if show_labels
+        label.new(
+             bar_index, last_sl,
+             "BOS",
+             style     = label.style_none,
+             textcolor = color.new(col_bear, 10),
+             size      = size.tiny)
+        line.new(
+             not na(last_sl_bar) ? last_sl_bar : bar_index - 10, last_sl,
+             bar_index, last_sl,
+             color = color.new(col_bear, 55),
+             style = line.style_dotted,
+             width = 1)
+
+// Update structure_trend based on BOS
+if bos_bull_trigger
+    structure_trend := "bull"
+if bos_bear_trigger
+    structure_trend := "bear"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.c.3] CHoCH (Change of Character) — § 3.5
+// ═══════════════════════════════════════════════════════════════════════════
+// CHoCH = BOS AGAINST the current trend direction.
+//   In a bullish structure, a BOS bear = CHoCH → potential trend reversal.
+//   In a bearish structure, a BOS bull = CHoCH → potential trend reversal.
+// MSS (Market Structure Shift) is an alias for CHoCH per spec § 3.5.
+
+choch_bull = bos_bull_trigger and structure_trend[1] == "bear"
+choch_bear = bos_bear_trigger and structure_trend[1] == "bull"
+
+mss_bull = choch_bull   // alias
+mss_bear = choch_bear   // alias
+
+// CHoCH : thin label (slightly more prominent than BOS — it IS a reversal signal)
+if choch_bull and show_labels
+    label.new(
+         bar_index, last_sh,
+         "CHoCH",
+         style     = label.style_none,
+         textcolor = color.new(#FBBF24, 10),
+         size      = size.small)
+
+if choch_bear and show_labels
+    label.new(
+         bar_index, last_sl,
+         "CHoCH",
+         style     = label.style_none,
+         textcolor = color.new(#FBBF24, 10),
+         size      = size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2.c.4] CISD (Change in State of Delivery) — § 3.5
+// ═══════════════════════════════════════════════════════════════════════════
+// CISD = the LTF confirmation sequence : sweep + OB + FVG in new direction.
+// It's the TRIGGER for entries after a CHoCH on HTF.
 //
-// To be implemented :
-//   f_bos(body_close)            → [broken, direction]
-//   f_choch()                    → [detected, direction]
-//   f_cisd()                     → [detected, direction]
-//   f_mss() → alias for choch
+// Detection :
+//   - Liquidity sweep on LTF (short-term high/low taken out + price returned)
+//   - An OB is now present in direction of reversal
+//   - An FVG was delivered during the move
+//
+// In practice : CISD bull = bear OB just got broken + bull FVG present + small
+//              liquidity sweep taken.
+
+// Short-term liquidity : 5-bar high/low
+st_high = ta.highest(high, 5)[1]
+st_low  = ta.lowest(low, 5)[1]
+
+sweep_st_high = barstate.isconfirmed and high > st_high and close < st_high   // wick above, close back below
+sweep_st_low  = barstate.isconfirmed and low  < st_low  and close > st_low    // wick below, close back above
+
+// Check for active bull OB present
+has_active_bull_ob = false
+has_active_bear_ob = false
+if array.size(obs) > 0
+    for i = 0 to array.size(obs) - 1
+        ob_c = array.get(obs, i)
+        if not ob_c.mitigated and not ob_c.broken
+            if ob_c.direction == "bull"
+                has_active_bull_ob := true
+            if ob_c.direction == "bear"
+                has_active_bear_ob := true
+
+// Check for active bull/bear FVG present
+has_active_bull_fvg = false
+has_active_bear_fvg = false
+if array.size(fvgs) > 0
+    for i = 0 to array.size(fvgs) - 1
+        fvg_c = array.get(fvgs, i)
+        if not fvg_c.mitigated and not fvg_c.inverted
+            if fvg_c.direction == "bull"
+                has_active_bull_fvg := true
+            if fvg_c.direction == "bear"
+                has_active_bear_fvg := true
+
+// CISD bull : sweep low + bull OB present + bull FVG just delivered
+cisd_bull = sweep_st_low and has_active_bull_ob and has_active_bull_fvg
+cisd_bear = sweep_st_high and has_active_bear_ob and has_active_bear_fvg
+
+// CISD : small triangle marker (confirmation signal, most important for entries)
+if cisd_bull and show_labels
+    label.new(
+         bar_index, low,
+         "▲",
+         style     = label.style_none,
+         textcolor = color.new(col_bull, 0),
+         size      = size.small,
+         yloc      = yloc.belowbar)
+
+if cisd_bear and show_labels
+    label.new(
+         bar_index, high,
+         "▼",
+         style     = label.style_none,
+         textcolor = color.new(col_bear, 0),
+         size      = size.small,
+         yloc      = yloc.abovebar)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2] ICT LIQUIDITY  (PDH/PDL, PWH/PWL, PMH/PML, EQH/EQL, KZ H/L)
@@ -924,39 +1223,77 @@ _col_touch8 = color.new(col_kz_ny_am, 0)
 _col_touch9 = color.new(col_kz_ny_pm, 0)
 _col_touch10 = color.new(col_kz_asia, 0)
 
-// Live HUD dashboard — updates on last bar only
-var label _check_label = na
-if (barstate.islastconfirmedhistory or barstate.islast) and show_dashboard
-    label.delete(_check_label)
-    _hud_txt = "🎯 ICT v1 · A.2.b\n"
-             + "══════════════════\n"
-             + "📍 OPENS\n"
-             + "  Midnight : " + (na(midnight_open) ? "—" : str.tostring(midnight_open, format.mintick)) + "\n"
-             + "  Weekly   : " + (na(weekly_open)   ? "—" : str.tostring(weekly_open, format.mintick))   + "\n"
-             + "──────────────────\n"
-             + "🎲 POWER OF THREE\n"
-             + "  Prev D  : " + po3_daily_prev_dir  + "\n"
-             + "  Prev W  : " + po3_weekly_prev_dir + "\n"
-             + "  Phase   : " + po3_current_phase   + "\n"
-             + "──────────────────\n"
-             + "⏰ KILLZONE\n"
-             + "  " + current_kz + "\n"
-             + "──────────────────\n"
-             + "📦 PD ARRAYS (active)\n"
-             + "  FVG bull : " + str.tostring(active_bull_fvg_count) + "  ·  bear : " + str.tostring(active_bear_fvg_count) + "\n"
-             + "  IFVG    : " + str.tostring(active_ifvg_count) + "\n"
-             + "  OB bull : " + str.tostring(active_bull_ob_count) + "  ·  bear : " + str.tostring(active_bear_ob_count) + "\n"
-             + "  BB      : " + str.tostring(active_bb_count) + "\n"
-             + "──────────────────\n"
-             + "📈 SWINGS\n"
-             + "  H : " + (na(last_sh) ? "—" : str.tostring(last_sh, format.mintick)) + "\n"
-             + "  L : " + (na(last_sl) ? "—" : str.tostring(last_sl, format.mintick))
-    _check_label := label.new(
-         bar_index, high,
-         _hud_txt,
-         style     = label.style_label_down,
-         color     = color.new(color.green, 20),
-         textcolor = color.white,
-         size      = size.normal)
+// Compact HUD dashboard — table in top-right corner (no chart clutter)
+var table hud_tbl = table.new(
+     position     = position.top_right,
+     columns      = 2,
+     rows         = 12,
+     bgcolor      = color.new(#0F172A, 15),
+     border_color = color.new(#FFD700, 70),
+     border_width = 1,
+     frame_color  = color.new(#FFD700, 50),
+     frame_width  = 1)
+
+// Color helpers for table cells
+_col_label = color.new(#94A3B8, 20)   // muted grey-blue for labels
+_col_value = color.new(#F8FAFC, 0)    // near-white for values
+_col_bull_v = color.new(#10B981, 0)
+_col_bear_v = color.new(#EF4444, 0)
+_col_neutral_v = color.new(#FBBF24, 0)
+
+f_po3_col(d) =>
+    d == "bull" ? _col_bull_v : d == "bear" ? _col_bear_v : _col_neutral_v
+
+if barstate.islast and show_dashboard
+    // Clear previous content
+    table.clear(hud_tbl, 0, 0, 1, 11)
+
+    // Row 0 : header
+    table.cell(hud_tbl, 0, 0, "ICT v1", text_color = _col_value, text_size = size.small, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud_tbl, 1, 0, syminfo.ticker, text_color = color.new(#FFD700, 0), text_size = size.small, bgcolor = color.new(#1E293B, 0))
+
+    // Row 1 : Midnight open
+    table.cell(hud_tbl, 0, 1, "Midnight", text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 1, na(midnight_open) ? "—" : str.tostring(midnight_open, format.mintick), text_color = _col_value, text_size = size.tiny)
+
+    // Row 2 : Weekly open
+    table.cell(hud_tbl, 0, 2, "Weekly",   text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 2, na(weekly_open)   ? "—" : str.tostring(weekly_open,   format.mintick), text_color = _col_value, text_size = size.tiny)
+
+    // Row 3 : PO3 Prev D
+    table.cell(hud_tbl, 0, 3, "PO3 D",    text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 3, po3_daily_prev_dir,  text_color = f_po3_col(po3_daily_prev_dir),  text_size = size.tiny)
+
+    // Row 4 : PO3 Prev W
+    table.cell(hud_tbl, 0, 4, "PO3 W",    text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 4, po3_weekly_prev_dir, text_color = f_po3_col(po3_weekly_prev_dir), text_size = size.tiny)
+
+    // Row 5 : Phase
+    table.cell(hud_tbl, 0, 5, "Phase",    text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 5, po3_current_phase,   text_color = _col_value, text_size = size.tiny)
+
+    // Row 6 : KZ
+    table.cell(hud_tbl, 0, 6, "KZ",       text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 6, current_kz,            text_color = in_any_kz ? _col_bull_v : _col_label, text_size = size.tiny)
+
+    // Row 7 : FVG
+    table.cell(hud_tbl, 0, 7, "FVG b/s",  text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 7, str.tostring(active_bull_fvg_count) + "/" + str.tostring(active_bear_fvg_count), text_color = _col_value, text_size = size.tiny)
+
+    // Row 8 : IFVG
+    table.cell(hud_tbl, 0, 8, "IFVG",     text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 8, str.tostring(active_ifvg_count), text_color = color.new(#AB47BC, 0), text_size = size.tiny)
+
+    // Row 9 : OB
+    table.cell(hud_tbl, 0, 9, "OB b/s",   text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 9, str.tostring(active_bull_ob_count) + "/" + str.tostring(active_bear_ob_count), text_color = _col_value, text_size = size.tiny)
+
+    // Row 10 : BB
+    table.cell(hud_tbl, 0, 10, "BB",      text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 10, str.tostring(active_bb_count), text_color = color.new(#FF9800, 0), text_size = size.tiny)
+
+    // Row 11 : Trend
+    table.cell(hud_tbl, 0, 11, "Trend",   text_color = _col_label, text_size = size.tiny)
+    table.cell(hud_tbl, 1, 11, structure_trend, text_color = f_po3_col(structure_trend), text_size = size.tiny)
 
 // End of A.2.a ──────────────────────────────────────────────────────────────
