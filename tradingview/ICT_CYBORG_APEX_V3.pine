@@ -613,9 +613,9 @@ vol_sma20 = ta.sma(volume, 20)
 turtle_bull = not na(last_sw_l) and low  < last_sw_l and close > last_sw_l and close > open and volume > vol_sma20
 turtle_bear = not na(last_sw_h) and high > last_sw_h and close < last_sw_h and close < open and volume > vol_sma20
 
-if turtle_bull and barstate.isconfirmed
+if turtle_bull and not clean_mode and barstate.isconfirmed
     label.new(bar_index, low,  "TS↑", color = color.new(#FFD600, 30), textcolor = color.black, style = label.style_label_up, size = size.small)
-if turtle_bear and barstate.isconfirmed
+if turtle_bear and not clean_mode and barstate.isconfirmed
     label.new(bar_index, high, "TS↓", color = color.new(#FFD600, 30), textcolor = color.black, style = label.style_label_down, size = size.small)
 
 // Unicorn (OB + FVG + Breaker alignment - rare high-probability setup)
@@ -837,16 +837,19 @@ lots_calc = f_safe_div(risk_usd, sl_dist * point_value)
 // ============================================================================
 // KILLZONE + QUARTER + MACRO BACKGROUND
 // ============================================================================
-bgcolor(show_kz    and in_london  and not in_lo_open ? color.new(color.blue, 92)   : na, title = "BG London")
-bgcolor(show_kz    and in_lo_open                    ? color.new(color.teal, 90)   : na, title = "BG London Open")
-bgcolor(show_kz    and in_ny_am                      ? color.new(color.orange, 92) : na, title = "BG NY AM")
-bgcolor(show_kz    and in_ny_pm                      ? color.new(color.red, 93)    : na, title = "BG NY PM")
-bgcolor(show_kz    and in_asia                       ? color.new(color.purple, 94) : na, title = "BG Asia")
-bgcolor(show_macro and in_macro                      ? C_MACRO                      : na, title = "BG Macro")
+// Subtle killzones (high alpha = near-invisible) - less clutter
+bgcolor(show_kz    and in_london  and not in_lo_open ? color.new(color.blue,   95) : na, title = "BG London")
+bgcolor(show_kz    and in_lo_open                    ? color.new(color.teal,   93) : na, title = "BG London Open")
+bgcolor(show_kz    and in_ny_am                      ? color.new(color.orange, 95) : na, title = "BG NY AM")
+bgcolor(show_kz    and in_ny_pm                      ? color.new(color.red,    96) : na, title = "BG NY PM")
+bgcolor(show_kz    and in_asia                       ? color.new(color.purple, 97) : na, title = "BG Asia")
+bgcolor(show_macro and in_macro and not clean_mode   ? C_MACRO                     : na, title = "BG Macro")
 
-// Grade highlight
-bg_g = grade_v3 == "S" ? color.new(#9C27B0, 95) : grade_v3 == "A+" ? color.new(#00E676, 95) : grade_v3 == "A" ? color.new(#FFC107, 96) : na
-bgcolor(bg_g, title = "BG Grade")
+// BIG visual flash on S or A+ setup active
+flash_col = grade_v3 == "S" and (setup_bull or setup_bear) ? color.new(#9C27B0, 75) :
+            grade_v3 == "A+" and (setup_bull or setup_bear) ? color.new(#00E676, 80) :
+            grade_v3 == "A" and (setup_bull or setup_bear) and not clean_mode ? color.new(#FFC107, 90) : na
+bgcolor(flash_col, title = "BG Grade Flash")
 
 // ============================================================================
 // OMNISCIENT DASHBOARD - Live grade for 4 key assets
