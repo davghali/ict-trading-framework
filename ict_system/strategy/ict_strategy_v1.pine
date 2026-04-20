@@ -175,8 +175,9 @@ kz_ny_lunch_session = input.session("1200-1300", "NY Lunch (NO TRADE)",
 kz_ny_pm_session   = input.session("1330-1600", "NY PM KZ",
      group = g4_kz, tooltip = "Default : 13:30 - 16:00 NY (reversal of AM or continuation)")
 
-show_kz_bg = input.bool(true, "Highlight Killzones (background)",
-     group   = g4_kz)
+show_kz_bg = input.bool(false, "Highlight Killzones (background)",
+     group   = g4_kz,
+     tooltip = "Background color tint during each killzone. Off by default to keep chart clean")
 
 kz_mode = input.string("auto", "KZ behavior mode",
      options = ["auto", "continuation", "reversal", "both"],
@@ -309,7 +310,8 @@ col_kz_ny_am   = input.color(color.new(#FF9800, 92), "NY AM KZ bg",        group
 col_kz_ny_pm   = input.color(color.new(#E91E63, 92), "NY PM KZ bg",        group = g8_ui)
 col_kz_asia    = input.color(color.new(#9C27B0, 92), "Asia KZ bg",         group = g8_ui)
 
-show_labels    = input.bool(true, "Show text labels on chart",  group = g8_ui)
+show_labels    = input.bool(false, "Show swing + structure markers",  group = g8_ui,
+     tooltip = "Tiny triangle markers on swing H/L + BOS/CHoCH/CISD labels. Off for cleanest view")
 show_dashboard = input.bool(true, "Show HUD dashboard",         group = g8_ui)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -408,15 +410,17 @@ if barstate.islast
         midnight_lbl := label.new(
              bar_index + 5, midnight_open,
              "00:00",
-             style     = label.style_none,
-             textcolor = color.new(#FFAB40, 15),
+             style     = label.style_label_left,
+             color     = color.new(#0F172A, 100),
+             textcolor = color.new(#FFAB40, 0),
              size      = size.small)
     if not na(weekly_open)
         weekly_lbl := label.new(
              bar_index + 5, weekly_open,
              "W",
-             style     = label.style_none,
-             textcolor = color.new(#66BB6A, 15),
+             style     = label.style_label_left,
+             color     = color.new(#0F172A, 100),
+             textcolor = color.new(#66BB6A, 0),
              size      = size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -432,10 +436,13 @@ in_ny_pm    = not na(time(timeframe.period, kz_ny_pm_session, kz_timezone))
 in_any_kz = in_asia or in_london or in_ny_am or in_ny_pm
 current_kz = in_ny_lunch ? "NY Lunch (NO TRADE)" : in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : in_ny_pm ? "NY PM" : "Out of KZ"
 
-bgcolor(show_kz_bg and in_asia    ? col_kz_asia   : na, title = "Asia KZ BG")
-bgcolor(show_kz_bg and in_london  ? col_kz_london : na, title = "London KZ BG")
-bgcolor(show_kz_bg and in_ny_am   ? col_kz_ny_am  : na, title = "NY AM KZ BG")
-bgcolor(show_kz_bg and in_ny_pm   ? col_kz_ny_pm  : na, title = "NY PM KZ BG")
+// KZ backgrounds only visible on intraday TFs (avoid clutter on D/W charts)
+_kz_is_intraday = timeframe.isintraday
+
+bgcolor(show_kz_bg and _kz_is_intraday and in_asia    ? color.new(#9C27B0, 96) : na, title = "Asia KZ BG")
+bgcolor(show_kz_bg and _kz_is_intraday and in_london  ? color.new(#2196F3, 96) : na, title = "London KZ BG")
+bgcolor(show_kz_bg and _kz_is_intraday and in_ny_am   ? color.new(#FF9800, 96) : na, title = "NY AM KZ BG")
+bgcolor(show_kz_bg and _kz_is_intraday and in_ny_pm   ? color.new(#E91E63, 96) : na, title = "NY PM KZ BG")
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2.a.4] SWING POINTS  (foundation for BOS / CHoCH / PD zones)
@@ -455,27 +462,27 @@ var int   last_sl_bar   = na
 if not na(swing_h)
     last_sh     := swing_h
     last_sh_bar := bar_index - swing_lookback
-    // Minimal marker : small dot above the swing (no boxed label)
-    if show_labels
-        label.new(
-             bar_index - swing_lookback, swing_h,
-             "",
-             style     = label.style_circle,
-             color     = color.new(col_bear, 60),
-             size      = size.tiny,
-             yloc      = yloc.abovebar)
 
 if not na(swing_l)
     last_sl     := swing_l
     last_sl_bar := bar_index - swing_lookback
-    if show_labels
-        label.new(
-             bar_index - swing_lookback, swing_l,
-             "",
-             style     = label.style_circle,
-             color     = color.new(col_bull, 60),
-             size      = size.tiny,
-             yloc      = yloc.belowbar)
+
+// Visual swing markers : tiny triangles (optional, off by default — mentor style)
+plotshape(show_labels and not na(swing_h) ? swing_h : na,
+     title    = "Swing H",
+     style    = shape.triangledown,
+     location = location.absolute,
+     color    = color.new(col_bear, 60),
+     size     = size.tiny,
+     offset   = -swing_lookback)
+
+plotshape(show_labels and not na(swing_l) ? swing_l : na,
+     title    = "Swing L",
+     style    = shape.triangleup,
+     location = location.absolute,
+     color    = color.new(col_bull, 60),
+     size     = size.tiny,
+     offset   = -swing_lookback)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2.a.5] POWER OF THREE (PO3)  (§ 3.1)
@@ -607,7 +614,7 @@ if show_fvg and is_bull_fvg
          viz         = box.new(
               left         = bar_index - 2,
               top          = low,
-              right        = bar_index + fvg_age_max,
+              right        = bar_index + 15,
               bottom       = high[2],
               bgcolor      = color.new(#4DB6AC, 92),
               border_color = color.new(#4DB6AC, 70),
@@ -630,7 +637,7 @@ if show_fvg and is_bear_fvg
          viz         = box.new(
               left         = bar_index - 2,
               top          = low[2],
-              right        = bar_index + fvg_age_max,
+              right        = bar_index + 15,
               bottom       = high,
               bgcolor      = color.new(#F8BBD0, 92),
               border_color = color.new(#F8BBD0, 70),
@@ -666,7 +673,7 @@ if array.size(fvgs) > 0 and barstate.isconfirmed
                 if became_ifvg
                     box.set_bgcolor(fvg.viz, C_IFVG_BG)
                     box.set_border_color(fvg.viz, C_IFVG_BORDER)
-                    box.set_right(fvg.viz, bar_index + fvg_age_max)
+                    box.set_right(fvg.viz, bar_index + 15)
                     array.set(fvgs, i, fvg)
 
             // Mitigation tracking (price enters FVG zone)
@@ -726,7 +733,7 @@ if show_ob and bull_ob_valid
          viz          = box.new(
               left         = bar_index - 1,
               top          = high[1],
-              right        = bar_index + fvg_age_max,
+              right        = bar_index + 15,
               bottom       = low[1],
               bgcolor      = C_OB_BULL_BG,
               border_color = C_OB_BULL_BORDER,
@@ -750,7 +757,7 @@ if show_ob and bear_ob_valid
          viz          = box.new(
               left         = bar_index - 1,
               top          = high[1],
-              right        = bar_index + fvg_age_max,
+              right        = bar_index + 15,
               bottom       = low[1],
               bgcolor      = C_OB_BEAR_BG,
               border_color = C_OB_BEAR_BORDER,
@@ -867,10 +874,10 @@ if show_pdh_pdl and barstate.islast
     label.delete(pdl_lbl)
     if not na(pdh_val)
         pdh_lbl := label.new(bar_index + 5, pdh_val, "PDH",
-             style = label.style_none, textcolor = _col_pd_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#5C6BC0, 0), size = size.small)
     if not na(pdl_val)
         pdl_lbl := label.new(bar_index + 5, pdl_val, "PDL",
-             style = label.style_none, textcolor = _col_pd_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#5C6BC0, 0), size = size.small)
 
 // ──── PWH / PWL ────
 var line  pwh_line = na
@@ -891,10 +898,10 @@ if show_pwh_pwl and barstate.islast
     label.delete(pwl_lbl)
     if not na(pwh_val)
         pwh_lbl := label.new(bar_index + 5, pwh_val, "PWH",
-             style = label.style_none, textcolor = _col_pw_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#26C6DA, 0), size = size.small)
     if not na(pwl_val)
         pwl_lbl := label.new(bar_index + 5, pwl_val, "PWL",
-             style = label.style_none, textcolor = _col_pw_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#26C6DA, 0), size = size.small)
 
 // ──── PMH / PML ────
 var line  pmh_line = na
@@ -915,10 +922,10 @@ if show_pmh_pml and barstate.islast
     label.delete(pml_lbl)
     if not na(pmh_val)
         pmh_lbl := label.new(bar_index + 5, pmh_val, "PMH",
-             style = label.style_none, textcolor = _col_pm_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#66BB6A, 0), size = size.small)
     if not na(pml_val)
         pml_lbl := label.new(bar_index + 5, pml_val, "PML",
-             style = label.style_none, textcolor = _col_pm_txt, size = size.small)
+             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#66BB6A, 0), size = size.small)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  [A.2.c] MARKET STRUCTURE — BOS / CHoCH / CISD / MSS  (§ 3.5)           ║
