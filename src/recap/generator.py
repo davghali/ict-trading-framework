@@ -120,7 +120,7 @@ class RecapGenerator:
         return "\n".join(lines)
 
     # ==================================================================
-    # EVENING RECAP (CLEAN - v2026.04.20, no legacy "Hidden Alert")
+    # EVENING RECAP
     # ==================================================================
     def evening_recap(self) -> str:
         now = datetime.utcnow()
@@ -197,7 +197,7 @@ class RecapGenerator:
                           f"{w_stats_local['r']:+.1f}R | "
                           f"{w_stats_local['pnl_pct']:+.2f}%")
 
-        # ======= Closing (CLEAN - no "Hidden Alert" legacy) =======
+        # ======= Closing =======
         lines.append("")
         lines.append(f"💤 Bonne nuit David — discipline ✓")
 

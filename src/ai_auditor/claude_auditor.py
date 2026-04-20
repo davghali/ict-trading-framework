@@ -49,7 +49,7 @@ Evaluate this setup on ICT / Smart Money Concepts principles. Consider:
 - Is the cross-asset confluence coherent?
 - Is the entry location optimal (FVG CE, OB, liquidity sweep)?
 - Is RR asymmetric favorably?
-- Are there hidden risks (news, correlation, regime mismatch)?
+- Are there latent risks (news, correlation, regime mismatch)?
 
 Respond ONLY in strict JSON:
 {{
