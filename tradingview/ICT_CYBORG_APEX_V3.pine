@@ -815,18 +815,18 @@ if show_lines and draw_setup and barstate.isconfirmed
     float tp1_p = setup_bull ? close + atr14 * tp1_atr_mult : close - atr14 * tp1_atr_mult
     float tp2_p = setup_bull ? close + atr14 * tp2_atr_mult : close - atr14 * tp2_atr_mult
 
-    // BIG, BRIGHT trade lines (extended 50 bars, wider, brighter colors)
-    entry_ln := line.new(bar_index, entry_p, bar_index + 50, entry_p, color = color.new(#FFFFFF, 0),  style = line.style_solid,  width = 3)
-    sl_ln    := line.new(bar_index, sl_p,    bar_index + 50, sl_p,    color = color.new(#FF1744, 0),  style = line.style_solid,  width = 3)
-    tp1_ln   := line.new(bar_index, tp1_p,   bar_index + 50, tp1_p,   color = color.new(#00E676, 10), style = line.style_dashed, width = 2)
-    tp2_ln   := line.new(bar_index, tp2_p,   bar_index + 50, tp2_p,   color = color.new(#00E676, 0),  style = line.style_solid,  width = 3)
+    // ELEGANT trade lines - gold dotted Entry + bold SL/TP
+    entry_ln := line.new(bar_index, entry_p, bar_index + 40, entry_p, color = color.new(#FFD700, 20), style = line.style_dotted, width = 1)
+    sl_ln    := line.new(bar_index, sl_p,    bar_index + 40, sl_p,    color = color.new(#FF1744, 10), style = line.style_solid,  width = 2)
+    tp1_ln   := line.new(bar_index, tp1_p,   bar_index + 40, tp1_p,   color = color.new(#00E676, 20), style = line.style_dashed, width = 1)
+    tp2_ln   := line.new(bar_index, tp2_p,   bar_index + 40, tp2_p,   color = color.new(#00E676, 10), style = line.style_solid,  width = 2)
 
-    // BIG prominent labels with grade + direction
+    // ELEGANT labels (smaller, gold Entry, clean)
     dir_arrow = setup_bull ? "🟢 LONG" : "🔴 SHORT"
-    entry_lbl := label.new(bar_index + 50, entry_p, "🎯 " + grade_v3 + " " + dir_arrow + "  ENTRY " + str.tostring(entry_p, "#.#####"), color = color.new(#FFFFFF, 0),  textcolor = color.black, style = label.style_label_left, size = size.normal)
-    sl_lbl    := label.new(bar_index + 50, sl_p,    "❌ SL "    + str.tostring(sl_p,    "#.#####"), color = color.new(#FF1744, 0),  textcolor = color.white, style = label.style_label_left, size = size.normal)
-    tp1_lbl   := label.new(bar_index + 50, tp1_p,   "✅ TP1 "   + str.tostring(tp1_p,   "#.#####") + " (+2R)", color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_left, size = size.normal)
-    tp2_lbl   := label.new(bar_index + 50, tp2_p,   "🎯 TP2 "   + str.tostring(tp2_p,   "#.#####") + " (+4R)", color = color.new(#00E676, 0),  textcolor = color.white, style = label.style_label_left, size = size.normal)
+    entry_lbl := label.new(bar_index + 40, entry_p, "🎯 " + grade_v3 + " " + dir_arrow + "  ENTRY " + str.tostring(entry_p, "#.#####"), color = color.new(#FFD700, 10),  textcolor = color.black, style = label.style_label_left, size = size.small)
+    sl_lbl    := label.new(bar_index + 40, sl_p,    "❌ SL "    + str.tostring(sl_p,    "#.#####"), color = color.new(#FF1744, 10),  textcolor = color.white, style = label.style_label_left, size = size.small)
+    tp1_lbl   := label.new(bar_index + 40, tp1_p,   "✅ TP1 "   + str.tostring(tp1_p,   "#.#####") + " (+2R)", color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_left, size = size.small)
+    tp2_lbl   := label.new(bar_index + 40, tp2_p,   "🎯 TP2 "   + str.tostring(tp2_p,   "#.#####") + " (+4R)", color = color.new(#00E676, 10), textcolor = color.white, style = label.style_label_left, size = size.small)
 
 // ============================================================================
 // POSITION SIZING
