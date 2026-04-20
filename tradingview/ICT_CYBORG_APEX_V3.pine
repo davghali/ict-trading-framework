@@ -702,11 +702,7 @@ ml_prob -= regime == "MANIPULATION" ? 25.0 : 0.0
 ml_prob -= ((setup_bull and smt_bear) or (setup_bear and smt_bull)) ? 15.0 : 0.0
 ml_prob := math.max(0.0, math.min(100.0, ml_prob))
 
-ml_emoji = ml_prob >= 85 ? "🔥" :
-            ml_prob >= 75 ? "💎" :
-            ml_prob >= 65 ? "🎯" :
-            ml_prob >= 50 ? "⭐" :
-            ml_prob >= 35 ? "✓" : "⚠️"
+ml_emoji = ml_prob >= 85 ? "🔥" : ml_prob >= 75 ? "💎" : ml_prob >= 65 ? "🎯" : ml_prob >= 50 ? "⭐" : ml_prob >= 35 ? "✓" : "⚠️"
 
 // ============================================================================
 // EXPECTED R
