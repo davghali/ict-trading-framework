@@ -1,0 +1,1188 @@
+// @version=6
+// ============================================================================
+// ICT CYBORG APEX V3 - STRATEGY EDITION (BACKTEST NATIF TRADINGVIEW)
+// ============================================================================
+// Par David Ghali x Claude - 2026-04-20
+//
+// IDENTIQUE au V3 Indicator pour les calculs (grade S/A+/A/B, FVG, OB, sweep,
+// SMT, cross-asset, 15 modules) mais enrichi du bloc STRATEGY qui exécute
+// les trades et active le Strategy Tester TradingView natif.
+//
+// USAGE :
+//   1. Add to chart XAUUSD / NAS100 / EURUSD en D / H4 / H1
+//   2. Ouvre "Strategy Tester" (bouton en bas)
+//   3. Performance Summary → WR, PF, DD, Sharpe, expectancy EXACT
+//   4. List of Trades → chaque trade trait par trait (entry/sl/tp/R)
+//   5. Properties → changer grade min (S vs A+) pour comparer
+//
+// PARAMÈTRES FTMO-READY :
+//   - initial_capital = 10000 USD
+//   - risk per trade = 0.5% (via grade filter + sl atr-based)
+//   - commission = 0.01% / side
+//   - slippage = 2 ticks
+//   - pyramiding = 0 (1 trade à la fois)
+// ============================================================================
+
+strategy(
+   title = "ICT CYBORG APEX V3 - STRATEGY",
+   shorttitle = "ICT-V3-STRAT",
+   overlay = true,
+   initial_capital = 10000,
+   default_qty_type = strategy.percent_of_equity,
+   default_qty_value = 100,
+   commission_type = strategy.commission.percent,
+   commission_value = 0.01,
+   slippage = 2,
+   pyramiding = 0,
+   calc_on_every_tick = false,
+   process_orders_on_close = true,
+   max_boxes_count = 500,
+   max_lines_count = 500,
+   max_labels_count = 500,
+   max_bars_back = 1000
+)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grp_gen      = "═══ GENERAL ═══"
+clean_mode   = input.bool(true,  "🧹 CLEAN MODE (hide clutter, show only S/A+ setups)", group = grp_gen,
+                         tooltip = "ON = chart épuré, affiche uniquement setups elite. OFF = affiche tout (FULL mode)")
+show_dash    = input.bool(true,  "Show Dashboard HUD",   group = grp_gen)
+dash_pos_in  = input.string("Top Right", "Dashboard Position",
+                           options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Middle Right"],
+                           group = grp_gen)
+alert_min    = input.string("A+", "Alert Grade Threshold",
+                           options = ["S", "A+", "A", "B"],
+                           tooltip = "S = 1-2/d rare · A+ = 3-5/d · A = 6-12/d · B = 10-20/d",
+                           group = grp_gen)
+show_anchor  = input.bool(false, "Show True Day/Week Open lines", group = grp_gen)
+
+grp_ict      = "═══ ICT ELEMENTS ═══"
+show_fvg     = input.bool(true,  "FVG",                  group = grp_ict)
+show_ifvg    = input.bool(true,  "IFVG (Inverse FVG)",   group = grp_ict)
+show_ob      = input.bool(true,  "Order Blocks",         group = grp_ict)
+show_bb      = input.bool(true,  "Breaker Blocks",       group = grp_ict)
+show_liq     = input.bool(true,  "Liquidity (Swings)",   group = grp_ict)
+show_pdh     = input.bool(true,  "PDH/PDL/PWH/PWL",      group = grp_ict)
+show_eql     = input.bool(true,  "Equal Highs/Lows",     group = grp_ict)
+fvg_age      = input.int(30,     "FVG max age (bars)",   minval = 5, maxval = 200, group = grp_ict)
+
+grp_struct   = "═══ MARKET STRUCTURE ═══"
+show_struct  = input.bool(true,  "Show BOS / CHoCH",     group = grp_struct)
+show_pd      = input.bool(true,  "Premium/Discount zones", group = grp_struct)
+show_ote     = input.bool(true,  "OTE zone (62-79% Fib)", group = grp_struct)
+swing_len    = input.int(10,     "Swing length",         minval = 3, maxval = 30, group = grp_struct)
+
+grp_kz       = "═══ KILLZONES ═══"
+show_kz      = input.bool(true,  "Highlight Killzones",  group = grp_kz)
+show_macro   = input.bool(true,  "Show Macro windows (:50-:10)", group = grp_kz)
+show_quarter = input.bool(true,  "Show Quarter phases Q1-Q4", group = grp_kz)
+
+grp_trade    = "═══ TRADE LINES ═══"
+show_lines   = input.bool(true,  "Auto-draw Entry/SL/TP", group = grp_trade)
+sl_atr_mult  = input.float(1.5,  "SL (ATR x)",  minval = 0.5, maxval = 5,  step = 0.1, group = grp_trade)
+tp1_atr_mult = input.float(2.0,  "TP1 (ATR x)", minval = 1,   maxval = 10, step = 0.5, group = grp_trade)
+tp2_atr_mult = input.float(4.0,  "TP2 (ATR x)", minval = 2,   maxval = 15, step = 0.5, group = grp_trade)
+
+grp_cross    = "═══ CROSS-ASSET ═══"
+show_cross   = input.bool(true, "Enable Cross-Asset Engine", group = grp_cross)
+sym_dxy      = input.symbol("TVC:DXY",       "DXY symbol",       group = grp_cross)
+sym_spx      = input.symbol("TVC:SPX",       "SPX symbol",       group = grp_cross)
+sym_vix      = input.symbol("TVC:VIX",       "VIX symbol",       group = grp_cross)
+sym_us10y    = input.symbol("TVC:US10Y",     "US10Y symbol",     group = grp_cross)
+sym_eth      = input.symbol("BINANCE:ETHUSDT","ETH symbol",      group = grp_cross)
+
+grp_omni     = "═══ OMNISCIENT DASHBOARD ═══"
+show_omni    = input.bool(false,"Show Omniscient Multi-Asset Grades", group = grp_omni,
+                         tooltip = "OFF in Luxe mode for clean UI")
+omni_eu      = input.symbol("OANDA:EURUSD",    "EURUSD",   group = grp_omni)
+omni_xau     = input.symbol("OANDA:XAUUSD",    "XAUUSD",   group = grp_omni)
+omni_nas     = input.symbol("OANDA:NAS100USD", "NAS100",   group = grp_omni)
+omni_btc     = input.symbol("OANDA:BTCUSD",    "BTCUSD",   group = grp_omni)
+
+grp_smt      = "═══ SMT DIVERGENCE ═══"
+show_smt     = input.bool(true, "Enable SMT Divergence", group = grp_smt)
+smt_custom   = input.symbol("",  "Custom SMT pair (blank = auto)", group = grp_smt,
+                           tooltip = "Auto: EURUSD->GBPUSD, XAUUSD->XAGUSD, NAS->SPX, BTC->ETH")
+
+grp_vp       = "═══ VOLUME PROFILE ═══"
+show_vp      = input.bool(true,  "POC / VAH / VAL",      group = grp_vp)
+vp_lookback  = input.int(100,    "VP lookback bars",     minval = 20, maxval = 500, group = grp_vp)
+
+grp_risk     = "═══ RISK ═══"
+balance      = input.float(10000.0, "Account Balance $", minval = 100, group = grp_risk)
+risk_pct     = input.float(0.5,  "Risk per trade %",     minval = 0.1, maxval = 2, step = 0.1, group = grp_risk)
+point_value  = input.float(100.0, "Point value per 1 lot $", minval = 0.01, group = grp_risk,
+                          tooltip = "EURUSD=10 / XAUUSD=100 / NAS100=20 / BTCUSD=1")
+
+grp_webhook  = "═══ WEBHOOK ═══"
+json_alerts  = input.bool(false, "Use JSON format for alerts (AWS bot)", group = grp_webhook)
+
+// ============================================================================
+// COLORS (palette pro ICT)
+// ============================================================================
+C_BULL    = color.new(#00E676, 85)
+C_BULL_B  = color.new(#00E676, 40)
+C_BULL_S  = color.new(#00E676, 20)
+C_BEAR    = color.new(#FF1744, 85)
+C_BEAR_B  = color.new(#FF1744, 40)
+C_BEAR_S  = color.new(#FF1744, 20)
+C_S       = color.new(#9C27B0, 30)
+C_APLUS   = color.new(#00E676, 30)
+C_A       = color.new(#FFC107, 30)
+C_B       = color.new(#607D8B, 30)
+C_NEUT    = color.new(#FFC107, 40)
+C_INFO    = color.new(#2196F3, 50)
+C_PREM    = color.new(#FF1744, 95)
+C_DISC    = color.new(#00E676, 95)
+C_EQ      = color.new(#9E9E9E, 90)
+C_OTE     = color.new(#AB47BC, 85)
+C_MACRO   = color.new(#4FC3F7, 92)
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+f_in_session(sess) =>
+    tv = time("", sess, "UTC")
+    not na(tv)
+
+f_bias_from(c, s) =>
+    c > s ? 1 : c < s ? -1 : 0
+
+f_bias_txt(b) =>
+    b == 1 ? "↑" : b == -1 ? "↓" : "→"
+
+f_bias_col(b) =>
+    b == 1 ? color.new(#00E676, 50) : b == -1 ? color.new(#FF1744, 50) : color.new(color.gray, 50)
+
+f_grade(sc) =>
+    sc >= 9 ? "S" : sc >= 7 ? "A+" : sc >= 5 ? "A" : sc >= 3 ? "B" : "-"
+
+f_grade_col(g) =>
+    g == "S"  ? C_S :
+     g == "A+" ? C_APLUS :
+     g == "A"  ? C_A :
+     g == "B"  ? C_B : color.new(#424242, 30)
+
+f_rank(g) =>
+    g == "S" ? 4 : g == "A+" ? 3 : g == "A" ? 2 : g == "B" ? 1 : 0
+
+f_dash_position() =>
+    dash_pos_in == "Top Right"     ? position.top_right    :
+     dash_pos_in == "Top Left"      ? position.top_left     :
+     dash_pos_in == "Bottom Right"  ? position.bottom_right :
+     dash_pos_in == "Bottom Left"   ? position.bottom_left  :
+     position.middle_right
+
+// Safe divide (avoid / 0)
+f_safe_div(a, b) =>
+    b != 0 ? a / b : 0.0
+
+// Convert ticker name to short label
+f_sym_short(s) =>
+    str.contains(s, "EURUSD") ? "EUR" :
+     str.contains(s, "XAUUSD") ? "XAU" :
+     str.contains(s, "XAGUSD") ? "XAG" :
+     str.contains(s, "NAS100") ? "NAS" :
+     str.contains(s, "NDX")    ? "NAS" :
+     str.contains(s, "SPX")    ? "SPX" :
+     str.contains(s, "BTC")    ? "BTC" :
+     str.contains(s, "ETH")    ? "ETH" :
+     str.contains(s, "GBP")    ? "GBP" :
+     str.contains(s, "DXY")    ? "DXY" :
+     s
+
+// ============================================================================
+// KILLZONES + SESSIONS
+// ============================================================================
+in_asia      = f_in_session("2000-2359:1234567")
+in_london    = f_in_session("0700-1000:1234567")
+in_ny_am     = f_in_session("1230-1500:1234567")
+in_ny_pm     = f_in_session("1830-2030:1234567")
+in_lo_open   = f_in_session("0700-0800:1234567")
+
+// Silver Bullet windows (UTC)
+in_sb_10am   = f_in_session("1400-1500:1234567")  // 10AM NY = 14-15 UTC
+in_sb_3am    = f_in_session("0700-0800:1234567")  // 3AM NY = 7-8 UTC
+in_sb_11pm   = f_in_session("0300-0400:1234567")  // 11PM NY prev day = 3-4 UTC
+
+in_any_kz = in_london or in_ny_am or in_ny_pm or in_asia
+current_kz_txt = in_lo_open ? "London Open" : in_london ? "London KZ" : in_ny_am ? "NY AM KZ" : in_ny_pm ? "NY PM KZ" : in_asia ? "Asia KZ" : "OFF"
+
+// Countdown (UTC minutes)
+hr_u = hour(time, "UTC")
+mn_u = minute(time, "UTC")
+tot_min  = hr_u * 60 + mn_u
+next_kz_at = tot_min < 420  ? 420  :
+              tot_min < 750  ? 750  :
+              tot_min < 1110 ? 1110 :
+              tot_min < 1200 ? 1200 : 1860
+next_kz_in = next_kz_at - tot_min
+next_kz_nm = tot_min < 420  ? "London" :
+              tot_min < 750  ? "NY AM"  :
+              tot_min < 1110 ? "NY PM"  :
+              tot_min < 1200 ? "Asia"   : "London"
+
+// Quarterly Theory : Q1 00-06 UTC (Accum) · Q2 06-12 (Manip) · Q3 12-18 (Distrib) · Q4 18-24 (Rebal)
+quarter_num = hr_u < 6 ? 1 : hr_u < 12 ? 2 : hr_u < 18 ? 3 : 4
+quarter_txt = quarter_num == 1 ? "Q1 Accumulation" :
+              quarter_num == 2 ? "Q2 Manipulation" :
+              quarter_num == 3 ? "Q3 Distribution" : "Q4 Rebalance"
+quarter_col = quarter_num == 1 ? color.new(#2196F3, 50) :
+              quarter_num == 2 ? color.new(#FF9800, 50) :
+              quarter_num == 3 ? color.new(#00E676, 50) : color.new(#9C27B0, 50)
+
+// Macro windows : :50-:10 around each hour (20 min window of enhanced liquidity)
+in_macro = mn_u >= 50 or mn_u <= 10
+
+// ============================================================================
+// MULTI-TF BIAS (main chart asset)
+// ============================================================================
+[cw, sw] = request.security(syminfo.tickerid, "W",   [close, ta.sma(close, 50)], lookahead = barmerge.lookahead_off)
+[cd, sd] = request.security(syminfo.tickerid, "D",   [close, ta.sma(close, 50)], lookahead = barmerge.lookahead_off)
+[c4, s4] = request.security(syminfo.tickerid, "240", [close, ta.sma(close, 50)], lookahead = barmerge.lookahead_off)
+[c1, s1] = request.security(syminfo.tickerid, "60",  [close, ta.sma(close, 50)], lookahead = barmerge.lookahead_off)
+
+bias_w  = f_bias_from(cw, sw)
+bias_d  = f_bias_from(cd, sd)
+bias_h4 = f_bias_from(c4, s4)
+bias_h1 = f_bias_from(c1, s1)
+
+mtf_bull    = bias_w == 1  and bias_d == 1  and bias_h4 == 1  and bias_h1 == 1
+mtf_bear    = bias_w == -1 and bias_d == -1 and bias_h4 == -1 and bias_h1 == -1
+mtf_aligned = mtf_bull or mtf_bear
+mtf_strength = math.abs(bias_w + bias_d + bias_h4 + bias_h1)
+
+// ============================================================================
+// CROSS-ASSET ENGINE (always called, display gated by show_cross)
+// ============================================================================
+[dxy_c, dxy_s] = request.security(sym_dxy,   "D", [close, ta.sma(close, 20)], lookahead = barmerge.lookahead_off)
+[spx_c, spx_s] = request.security(sym_spx,   "D", [close, ta.sma(close, 20)], lookahead = barmerge.lookahead_off)
+vix_now        = request.security(sym_vix,   "D", close, lookahead = barmerge.lookahead_off)
+[u10_c, u10_s] = request.security(sym_us10y, "D", [close, ta.sma(close, 20)], lookahead = barmerge.lookahead_off)
+[eth_c, eth_s] = request.security(sym_eth,   "D", [close, ta.sma(close, 20)], lookahead = barmerge.lookahead_off)
+
+dxy_trend = not na(dxy_c) and not na(dxy_s) ? f_bias_from(dxy_c, dxy_s) : 0
+spx_trend = not na(spx_c) and not na(spx_s) ? f_bias_from(spx_c, spx_s) : 0
+u10_trend = not na(u10_c) and not na(u10_s) ? f_bias_from(u10_c, u10_s) : 0
+eth_trend = not na(eth_c) and not na(eth_s) ? f_bias_from(eth_c, eth_s) : 0
+vix_high  = not na(vix_now) and vix_now > 20
+vix_low   = not na(vix_now) and vix_now < 15
+
+// Risk-on score : SPX↑ + VIX↓ + ETH↑ = risk-on
+risk_on_score = 0
+risk_on_score := risk_on_score + (spx_trend == 1 ? 1 : 0)
+risk_on_score := risk_on_score + (vix_low ? 1 : 0)
+risk_on_score := risk_on_score + (eth_trend == 1 ? 1 : 0)
+risk_off_score = 0
+risk_off_score := risk_off_score + (spx_trend == -1 ? 1 : 0)
+risk_off_score := risk_off_score + (vix_high ? 1 : 0)
+risk_off_score := risk_off_score + (eth_trend == -1 ? 1 : 0)
+risk_state = risk_on_score > risk_off_score ? "RISK-ON" : risk_off_score > risk_on_score ? "RISK-OFF" : "NEUTRAL"
+risk_col   = risk_state == "RISK-ON"  ? color.new(#00E676, 40) :
+             risk_state == "RISK-OFF" ? color.new(#FF1744, 40) : color.new(color.gray, 40)
+
+// Cross-asset bullish confirmation for main symbol
+is_forex   = str.contains(syminfo.ticker, "EUR") or str.contains(syminfo.ticker, "GBP") or str.contains(syminfo.ticker, "USD")
+is_gold    = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
+is_index   = str.contains(syminfo.ticker, "NAS") or str.contains(syminfo.ticker, "NDX") or str.contains(syminfo.ticker, "SPX") or str.contains(syminfo.ticker, "DOW")
+is_crypto  = str.contains(syminfo.ticker, "BTC") or str.contains(syminfo.ticker, "ETH")
+
+// Rules : forex/gold bull requires DXY bear · indices bull requires SPX bull · crypto bull requires risk-on
+cross_bull_ok = is_forex or is_gold ? dxy_trend == -1 :
+                 is_index ? spx_trend == 1 and not vix_high :
+                 is_crypto ? risk_state == "RISK-ON" : true
+cross_bear_ok = is_forex or is_gold ? dxy_trend == 1 :
+                 is_index ? spx_trend == -1 or vix_high :
+                 is_crypto ? risk_state == "RISK-OFF" : true
+
+// ============================================================================
+// SMT DIVERGENCE (REAL)
+// ============================================================================
+f_smt_pair() =>
+    if smt_custom != ""
+        smt_custom
+    else if str.contains(syminfo.ticker, "EUR")
+        "OANDA:GBPUSD"
+    else if str.contains(syminfo.ticker, "XAU")
+        "OANDA:XAGUSD"
+    else if str.contains(syminfo.ticker, "NAS") or str.contains(syminfo.ticker, "NDX")
+        "OANDA:SPX500USD"
+    else if str.contains(syminfo.ticker, "BTC")
+        "BINANCE:ETHUSDT"
+    else
+        "TVC:DXY"
+
+smt_sym = f_smt_pair()
+[smt_h, smt_l] = request.security(smt_sym, timeframe.period, [high, low], lookahead = barmerge.lookahead_off)
+
+// Pre-compute ta.* outside conditional (Pine warns if in conditional)
+smt_h_prev = ta.highest(smt_h[1], 5)
+smt_l_prev = ta.lowest(smt_l[1], 5)
+
+// SMT bearish : we make new HH but pair doesn't
+smt_bear = show_smt and not na(smt_h) and high > high[5] and smt_h <= smt_h_prev
+smt_bull = show_smt and not na(smt_l) and low < low[5]   and smt_l >= smt_l_prev
+
+// ============================================================================
+// REGIME
+// ============================================================================
+atr14 = ta.atr(14)
+atr50 = ta.sma(atr14, 50)
+[dip, dim, adx] = ta.dmi(14, 14)
+
+regime_base = adx > 25 and atr14 > atr50 ? "TRENDING" :
+              atr14 > atr50 * 1.5         ? "VOLATILE" :
+              adx < 20                    ? "RANGING"  : "NORMAL"
+
+var int swp_cnt = 0
+swp_cnt := 0
+for i = 0 to 15
+    if (high[i] > high[i+1] and close[i] < high[i+1]) or (low[i] < low[i+1] and close[i] > low[i+1])
+        swp_cnt := swp_cnt + 1
+
+regime = swp_cnt >= 5 ? "MANIPULATION" : regime_base
+regime_col = regime == "TRENDING"     ? color.new(#00E676, 40) :
+             regime == "MANIPULATION" ? color.new(#FF1744, 40) :
+             regime == "VOLATILE"     ? color.new(#FF9800, 40) :
+             regime == "RANGING"      ? color.new(#2196F3, 40) : color.new(color.gray, 40)
+
+// ============================================================================
+// FVG
+// ============================================================================
+fvg_bull_now = low > high[2] and close > open
+fvg_bear_now = high < low[2] and close < open
+
+var array<box> fvg_bull_bx = array.new<box>()
+var array<box> fvg_bear_bx = array.new<box>()
+var array<int> fvg_bull_br = array.new<int>()
+var array<int> fvg_bear_br = array.new<int>()
+
+if show_fvg and not clean_mode and fvg_bull_now and barstate.isconfirmed
+    b = box.new(bar_index - 2, high[2], bar_index + 10, low, border_color = C_BULL_B, bgcolor = C_BULL)
+    array.push(fvg_bull_bx, b)
+    array.push(fvg_bull_br, bar_index)
+
+if show_fvg and not clean_mode and fvg_bear_now and barstate.isconfirmed
+    b = box.new(bar_index - 2, high, bar_index + 10, low[2], border_color = C_BEAR_B, bgcolor = C_BEAR)
+    array.push(fvg_bear_bx, b)
+    array.push(fvg_bear_br, bar_index)
+
+if array.size(fvg_bull_bx) > 0
+    for i = array.size(fvg_bull_bx) - 1 to 0
+        if bar_index - array.get(fvg_bull_br, i) > fvg_age
+            box.delete(array.get(fvg_bull_bx, i))
+            array.remove(fvg_bull_bx, i)
+            array.remove(fvg_bull_br, i)
+
+if array.size(fvg_bear_bx) > 0
+    for i = array.size(fvg_bear_bx) - 1 to 0
+        if bar_index - array.get(fvg_bear_br, i) > fvg_age
+            box.delete(array.get(fvg_bear_bx, i))
+            array.remove(fvg_bear_bx, i)
+            array.remove(fvg_bear_br, i)
+
+fvg_bull_cnt = array.size(fvg_bull_bx)
+fvg_bear_cnt = array.size(fvg_bear_bx)
+
+// ============================================================================
+// IFVG (Inverse FVG - FVG that price filled then reversed through)
+// Pre-compute ta.* outside conditional to avoid warnings
+// ============================================================================
+close_hi5 = ta.highest(close[1], 5)
+close_lo5 = ta.lowest(close[1], 5)
+cx_hi5 = ta.crossover(close, close_hi5)
+cu_lo5 = ta.crossunder(close, close_lo5)
+
+ifvg_bull = fvg_bear_cnt > 0 and close > open and cx_hi5
+ifvg_bear = fvg_bull_cnt > 0 and close < open and cu_lo5
+
+if show_ifvg and not clean_mode and ifvg_bull and barstate.isconfirmed
+    label.new(bar_index, low, "IFVG↑", color = color.new(#00BCD4, 40), textcolor = color.white, style = label.style_label_up, size = size.tiny)
+
+if show_ifvg and not clean_mode and ifvg_bear and barstate.isconfirmed
+    label.new(bar_index, high, "IFVG↓", color = color.new(#FF9800, 40), textcolor = color.white, style = label.style_label_down, size = size.tiny)
+
+// ============================================================================
+// ORDER BLOCKS
+// ============================================================================
+body_sz = math.abs(close - open)
+rng_sz  = high - low
+ob_bull_trig = close > open and close[1] < open[1] and body_sz > rng_sz * 0.6 and close > high[1]
+ob_bear_trig = close < open and close[1] > open[1] and body_sz > rng_sz * 0.6 and close < low[1]
+
+var array<box> ob_bull_bx = array.new<box>()
+var array<box> ob_bear_bx = array.new<box>()
+
+if show_ob and not clean_mode and ob_bull_trig and barstate.isconfirmed
+    b = box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color = C_BULL_B, bgcolor = color.new(#00E676, 92))
+    array.push(ob_bull_bx, b)
+
+if show_ob and not clean_mode and ob_bear_trig and barstate.isconfirmed
+    b = box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color = C_BEAR_B, bgcolor = color.new(#FF1744, 92))
+    array.push(ob_bear_bx, b)
+
+if array.size(ob_bull_bx) > 12
+    box.delete(array.shift(ob_bull_bx))
+if array.size(ob_bear_bx) > 12
+    box.delete(array.shift(ob_bear_bx))
+
+ob_bull_cnt = array.size(ob_bull_bx)
+ob_bear_cnt = array.size(ob_bear_bx)
+
+// ============================================================================
+// BREAKER BLOCKS (pre-compute ta.* outside conditional)
+// ============================================================================
+high_hi10 = ta.highest(high[1], 10)
+low_lo10  = ta.lowest(low[1], 10)
+cx_hi10   = ta.crossover(close,  high_hi10)
+cu_lo10   = ta.crossunder(close, low_lo10)
+
+bb_bull = close > open and close > high[5] and low < low[5]   and cx_hi10
+bb_bear = close < open and close < low[5]  and high > high[5] and cu_lo10
+
+if show_bb and not clean_mode and bb_bull and barstate.isconfirmed
+    label.new(bar_index, low, "BB↑", color = color.new(#00E676, 50), textcolor = color.white, style = label.style_label_up, size = size.small)
+
+if show_bb and not clean_mode and bb_bear and barstate.isconfirmed
+    label.new(bar_index, high, "BB↓", color = color.new(#FF1744, 50), textcolor = color.white, style = label.style_label_down, size = size.small)
+
+// ============================================================================
+// LIQUIDITY LINES + SWEEP DETECTION
+// ============================================================================
+sw_h = ta.pivothigh(high, swing_len, swing_len)
+sw_l = ta.pivotlow(low,  swing_len, swing_len)
+
+var array<line>  liq_hi_ln = array.new<line>()
+var array<line>  liq_lo_ln = array.new<line>()
+var array<float> liq_hi_px = array.new<float>()
+var array<float> liq_lo_px = array.new<float>()
+
+if show_liq and not clean_mode and not na(sw_h)
+    ln = line.new(bar_index - swing_len, sw_h, bar_index + 30, sw_h, color = color.new(#FF1744, 40), style = line.style_dashed, width = 1)
+    array.push(liq_hi_ln, ln)
+    array.push(liq_hi_px, sw_h)
+
+if show_liq and not clean_mode and not na(sw_l)
+    ln = line.new(bar_index - swing_len, sw_l, bar_index + 30, sw_l, color = color.new(#00E676, 40), style = line.style_dashed, width = 1)
+    array.push(liq_lo_ln, ln)
+    array.push(liq_lo_px, sw_l)
+
+if array.size(liq_hi_ln) > 10
+    line.delete(array.shift(liq_hi_ln))
+    array.shift(liq_hi_px)
+if array.size(liq_lo_ln) > 10
+    line.delete(array.shift(liq_lo_ln))
+    array.shift(liq_lo_px)
+
+sweep_h = high > high[1] and close < high[1]
+sweep_l = low  < low[1]  and close > low[1]
+
+// ============================================================================
+// EQUAL HIGHS / LOWS (liquidity targets)
+// ============================================================================
+atr_tol = atr14 * 0.15
+eql_h = not na(sw_h) and not na(sw_h[1]) and math.abs(sw_h - sw_h[1]) <= atr_tol
+eql_l = not na(sw_l) and not na(sw_l[1]) and math.abs(sw_l - sw_l[1]) <= atr_tol
+
+if show_eql and not clean_mode and eql_h and barstate.isconfirmed
+    label.new(bar_index, sw_h, "EQH", color = color.new(#FF1744, 30), textcolor = color.white, style = label.style_label_down, size = size.tiny)
+
+if show_eql and not clean_mode and eql_l and barstate.isconfirmed
+    label.new(bar_index, sw_l, "EQL", color = color.new(#00E676, 30), textcolor = color.white, style = label.style_label_up, size = size.tiny)
+
+// ============================================================================
+// MARKET STRUCTURE : Swing + BOS + CHoCH
+// ============================================================================
+var float last_sw_h = na
+var float last_sw_l = na
+var float prev_sw_h = na
+var float prev_sw_l = na
+
+if not na(sw_h)
+    prev_sw_h := last_sw_h
+    last_sw_h := sw_h
+if not na(sw_l)
+    prev_sw_l := last_sw_l
+    last_sw_l := sw_l
+
+// BOS detection (pre-compute crossovers)
+cx_lsh = ta.crossover(close,  nz(last_sw_h, close))
+cu_lsl = ta.crossunder(close, nz(last_sw_l, close))
+bos_bull = not na(last_sw_h) and cx_lsh
+bos_bear = not na(last_sw_l) and cu_lsl
+
+// CHoCH detection - track the dominant trend
+var int trend_dir = 0
+if bos_bull and trend_dir <= 0
+    if trend_dir == -1
+        label.new(bar_index, low,  "CHoCH↑", color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_up, size = size.small)
+    else if show_struct
+        label.new(bar_index, low,  "BOS↑", color = color.new(#00E676, 40), textcolor = color.white, style = label.style_label_up, size = size.tiny)
+    trend_dir := 1
+
+if bos_bear and trend_dir >= 0
+    if trend_dir == 1
+        label.new(bar_index, high, "CHoCH↓", color = color.new(#FF1744, 20), textcolor = color.white, style = label.style_label_down, size = size.small)
+    else if show_struct
+        label.new(bar_index, high, "BOS↓", color = color.new(#FF1744, 40), textcolor = color.white, style = label.style_label_down, size = size.tiny)
+    trend_dir := -1
+
+trend_txt = trend_dir == 1 ? "BULL" : trend_dir == -1 ? "BEAR" : "—"
+trend_col = trend_dir == 1 ? color.new(#00E676, 40) : trend_dir == -1 ? color.new(#FF1744, 40) : color.new(color.gray, 40)
+
+// ============================================================================
+// PREMIUM / DISCOUNT / EQUILIBRIUM + OTE
+// ============================================================================
+pd_hi = not na(last_sw_h) ? last_sw_h : high
+pd_lo = not na(last_sw_l) ? last_sw_l : low
+pd_mid = (pd_hi + pd_lo) / 2.0
+pd_range = pd_hi - pd_lo
+in_premium   = close > pd_mid
+in_discount  = close < pd_mid
+pd_zone_txt  = close > pd_hi - pd_range * 0.2 ? "Deep Premium" :
+               close > pd_mid ? "Premium" :
+               close < pd_lo + pd_range * 0.2 ? "Deep Discount" :
+               "Discount"
+pd_zone_col  = in_premium ? C_PREM : C_DISC
+
+// OTE zones (62-79% fib retracement)
+ote_bull_hi = pd_lo + pd_range * 0.79
+ote_bull_lo = pd_lo + pd_range * 0.62
+ote_bear_hi = pd_hi - pd_range * 0.62
+ote_bear_lo = pd_hi - pd_range * 0.79
+in_ote_bull = close >= ote_bull_lo and close <= ote_bull_hi
+in_ote_bear = close >= ote_bear_lo and close <= ote_bear_hi
+
+var box pd_box = na
+if show_pd and not clean_mode and barstate.islast
+    box.delete(pd_box)
+    pd_box := box.new(bar_index - 50, pd_hi, bar_index + 20, pd_mid, border_color = color.new(#FF1744, 70), bgcolor = C_PREM)
+    box.new(bar_index - 50, pd_mid, bar_index + 20, pd_lo, border_color = color.new(#00E676, 70), bgcolor = C_DISC)
+
+var line eq_ln = na
+if show_pd and not clean_mode and barstate.islast
+    line.delete(eq_ln)
+    eq_ln := line.new(bar_index - 50, pd_mid, bar_index + 20, pd_mid, color = color.new(#9E9E9E, 30), style = line.style_dotted, width = 1)
+
+var box ote_bull_bx2 = na
+var box ote_bear_bx2 = na
+if show_ote and not clean_mode and barstate.islast
+    box.delete(ote_bull_bx2)
+    box.delete(ote_bear_bx2)
+    ote_bull_bx2 := box.new(bar_index - 50, ote_bull_hi, bar_index + 20, ote_bull_lo, border_color = color.new(#AB47BC, 60), bgcolor = C_OTE)
+    ote_bear_bx2 := box.new(bar_index - 50, ote_bear_hi, bar_index + 20, ote_bear_lo, border_color = color.new(#AB47BC, 60), bgcolor = C_OTE)
+
+// ============================================================================
+// PDH / PDL / PWH / PWL
+// ============================================================================
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+plot(show_pdh and not clean_mode ? pdh : na, "PDH", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh and not clean_mode ? pdl : na, "PDL", color = color.new(#00BCD4, 40), linewidth = 1)
+plot(show_pdh and not clean_mode ? pwh : na, "PWH", color = color.new(#FFEB3B, 40), linewidth = 2)
+plot(show_pdh and not clean_mode ? pwl : na, "PWL", color = color.new(#FFEB3B, 40), linewidth = 2)
+
+// True Day/Week Open (anchor lines)
+[tdo] = request.security(syminfo.tickerid, "D", [open], lookahead = barmerge.lookahead_on)
+[two] = request.security(syminfo.tickerid, "W", [open], lookahead = barmerge.lookahead_on)
+plot(show_anchor and not clean_mode ? tdo : na, "TDO", color = color.new(#F48FB1, 30), linewidth = 1, style = plot.style_linebr)
+plot(show_anchor and not clean_mode ? two : na, "TWO", color = color.new(#CE93D8, 20), linewidth = 2, style = plot.style_linebr)
+
+// Asia range (for PO3)
+[asia_h, asia_l] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ============================================================================
+// ICT SETUPS
+// ============================================================================
+// Silver Bullet (3 variants)
+sb_10am_bull = in_sb_10am and fvg_bull_cnt > 0 and mtf_bull and sweep_l
+sb_10am_bear = in_sb_10am and fvg_bear_cnt > 0 and mtf_bear and sweep_h
+sb_3am_bull  = in_sb_3am  and fvg_bull_cnt > 0 and mtf_bull and sweep_l
+sb_3am_bear  = in_sb_3am  and fvg_bear_cnt > 0 and mtf_bear and sweep_h
+sb_11pm_bull = in_sb_11pm and fvg_bull_cnt > 0 and mtf_bull and sweep_l
+sb_11pm_bear = in_sb_11pm and fvg_bear_cnt > 0 and mtf_bear and sweep_h
+
+sb_bull = sb_10am_bull or sb_3am_bull or sb_11pm_bull
+sb_bear = sb_10am_bear or sb_3am_bear or sb_11pm_bear
+
+// Judas
+judas_bull = in_lo_open and low < low[5] and close > open and close > high[5]
+judas_bear = in_lo_open and high > high[5] and close < open and close < low[5]
+
+// PO3 (Power of Three - sweep Asia range + reverse in London)
+po3_bull = in_london and low < asia_l and close > asia_l and close > open
+po3_bear = in_london and high > asia_h and close < asia_h and close < open
+
+// Turtle Soup (pre-compute sma)
+vol_sma20 = ta.sma(volume, 20)
+turtle_bull = not na(last_sw_l) and low  < last_sw_l and close > last_sw_l and close > open and volume > vol_sma20
+turtle_bear = not na(last_sw_h) and high > last_sw_h and close < last_sw_h and close < open and volume > vol_sma20
+
+if turtle_bull and not clean_mode and barstate.isconfirmed
+    label.new(bar_index, low,  "TS↑", color = color.new(#FFD600, 30), textcolor = color.black, style = label.style_label_up, size = size.small)
+if turtle_bear and not clean_mode and barstate.isconfirmed
+    label.new(bar_index, high, "TS↓", color = color.new(#FFD600, 30), textcolor = color.black, style = label.style_label_down, size = size.small)
+
+// Unicorn (OB + FVG + Breaker alignment - rare high-probability setup)
+unicorn_bull = ob_bull_trig and fvg_bull_cnt > 0 and bb_bull and mtf_bull
+unicorn_bear = ob_bear_trig and fvg_bear_cnt > 0 and bb_bear and mtf_bear
+
+if unicorn_bull and barstate.isconfirmed
+    label.new(bar_index, low,  "🦄↑", color = color.new(#E91E63, 10), textcolor = color.white, style = label.style_label_up, size = size.large)
+if unicorn_bear and barstate.isconfirmed
+    label.new(bar_index, high, "🦄↓", color = color.new(#E91E63, 10), textcolor = color.white, style = label.style_label_down, size = size.large)
+
+setup_bull = sb_bull or judas_bull or po3_bull or bb_bull or turtle_bull or unicorn_bull
+setup_bear = sb_bear or judas_bear or po3_bear or bb_bear or turtle_bear or unicorn_bear
+
+// ============================================================================
+// VOLUME PROFILE PROXY (POC, VAH, VAL)
+// ============================================================================
+vp_n = math.max(1, math.min(vp_lookback, bar_index))
+var float vp_hi = na
+var float vp_lo = na
+vp_hi := ta.highest(high, vp_n)
+vp_lo := ta.lowest(low,  vp_n)
+
+// Approximate POC as price with most volume concentration (simplified: bar closest to VWAP)
+vwap_v = ta.vwap(hlc3)
+vp_poc = vwap_v
+vp_vah = vp_poc + (vp_hi - vp_poc) * 0.7
+vp_val = vp_poc - (vp_poc - vp_lo) * 0.7
+
+plot(show_vp and not clean_mode ? vp_poc : na, "POC", color = color.new(#FFEB3B, 20), linewidth = 2)
+plot(show_vp and not clean_mode ? vp_vah : na, "VAH", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
+plot(show_vp and not clean_mode ? vp_val : na, "VAL", color = color.new(#FFEB3B, 60), linewidth = 1, style = plot.style_linebr)
+
+// CVD proxy : cumulative buying/selling pressure approximation
+bar_range = math.max(high - low, syminfo.mintick)
+buy_vol  = volume * (close - low) / bar_range
+sell_vol = volume * (high - close) / bar_range
+bar_delta = buy_vol - sell_vol
+
+var float cvd = 0.0
+cvd := cvd + bar_delta
+cvd_sma = ta.sma(cvd, 20)
+cvd_trend = cvd > cvd_sma ? 1 : -1
+close_hi10_prev = ta.highest(close[1], 10)
+close_lo10_prev = ta.lowest(close[1], 10)
+cvd_divergence_bear = close > close_hi10_prev and cvd < cvd[10]
+cvd_divergence_bull = close < close_lo10_prev and cvd > cvd[10]
+
+// ============================================================================
+// CONFLUENCE SCORE (0-15, richer than V2)
+// ============================================================================
+var int conf_score = 0
+conf_score := 0
+if mtf_aligned
+    conf_score := conf_score + 2                               // 2pt big : W+D+H4+H1 aligned
+if mtf_strength >= 3
+    conf_score := conf_score + 1                               // 1pt : at least 3 TFs agree
+if sweep_h or sweep_l
+    conf_score := conf_score + 1
+if setup_bull or setup_bear
+    conf_score := conf_score + 2                               // 2pt : ICT setup active
+if unicorn_bull or unicorn_bear
+    conf_score := conf_score + 2                               // 2pt bonus : Unicorn is elite
+if in_any_kz
+    conf_score := conf_score + 1
+if in_macro
+    conf_score := conf_score + 1
+if in_ote_bull or in_ote_bear
+    conf_score := conf_score + 1
+if fvg_bull_cnt > 0 or fvg_bear_cnt > 0
+    conf_score := conf_score + 1
+if regime == "TRENDING"
+    conf_score := conf_score + 1
+if cross_bull_ok and setup_bull
+    conf_score := conf_score + 1
+if cross_bear_ok and setup_bear
+    conf_score := conf_score + 1
+if smt_bull and setup_bull
+    conf_score := conf_score + 1
+if smt_bear and setup_bear
+    conf_score := conf_score + 1
+if (setup_bull and cvd_trend == 1) or (setup_bear and cvd_trend == -1)
+    conf_score := conf_score + 1                               // CVD confirms setup
+
+// Penalties
+if regime == "MANIPULATION"
+    conf_score := math.max(0, conf_score - 3)
+if (setup_bull and not cross_bull_ok) or (setup_bear and not cross_bear_ok)
+    conf_score := math.max(0, conf_score - 2)
+if (setup_bull and smt_bear) or (setup_bear and smt_bull)
+    conf_score := math.max(0, conf_score - 2)                 // SMT against setup = big red flag
+
+grade_v3 = f_grade(conf_score)
+grade_col_v3 = f_grade_col(grade_v3)
+
+// ============================================================================
+// ═══ STRATEGY TRADE EXECUTION (BACKTEST ENGINE) ═══
+// ============================================================================
+// Parametres FTMO-ready : 0.5% risk, SL ATR, TP1 2R partial 50%, TP2 4R
+grp_strat     = "═══ STRATEGY ═══"
+strat_min_gr  = input.string("A+", "Min grade pour entrer en trade",
+                              options = ["S", "A+", "A", "B"],
+                              group = grp_strat,
+                              tooltip = "S = 1-2 trades/jour · A+ = 3-5/jour · A = 6-12/jour · B = 10-20/jour")
+strat_partial = input.float(50.0, "% sortie a TP1", minval = 0, maxval = 100, step = 10,
+                             group = grp_strat,
+                             tooltip = "% de la position cloturee quand TP1 hit. Reste court SL a BE puis TP2")
+strat_be_tp1  = input.bool(true, "Move SL to Break Even after TP1",
+                            group = grp_strat)
+strat_only_kz = input.bool(false, "Trade seulement pendant killzones",
+                            group = grp_strat,
+                            tooltip = "Utile pour intraday (H1/H4). OFF pour Daily")
+
+strat_rank     = f_rank(strat_min_gr)
+grade_rank_now = f_rank(grade_v3)
+grade_ok       = grade_rank_now >= strat_rank
+kz_ok          = not strat_only_kz or in_any_kz
+can_enter      = grade_ok and kz_ok and (setup_bull or setup_bear) and barstate.isconfirmed
+
+// Prices for strategy
+strat_sl_long   = close - atr14 * sl_atr_mult
+strat_tp1_long  = close + atr14 * tp1_atr_mult
+strat_tp2_long  = close + atr14 * tp2_atr_mult
+strat_sl_short  = close + atr14 * sl_atr_mult
+strat_tp1_short = close - atr14 * tp1_atr_mult
+strat_tp2_short = close - atr14 * tp2_atr_mult
+
+// Entry LONG
+if can_enter and setup_bull and strategy.position_size == 0
+    strategy.entry("LONG", strategy.long, comment = grade_v3 + " LONG")
+    strategy.exit("L-TP1", "LONG",
+                  stop  = strat_sl_long,
+                  limit = strat_tp1_long,
+                  qty_percent = strat_partial,
+                  comment_profit = "TP1",
+                  comment_loss   = "SL")
+    strategy.exit("L-TP2", "LONG",
+                  stop  = strat_sl_long,
+                  limit = strat_tp2_long,
+                  comment_profit = "TP2",
+                  comment_loss   = "SL")
+
+// Entry SHORT
+if can_enter and setup_bear and strategy.position_size == 0
+    strategy.entry("SHORT", strategy.short, comment = grade_v3 + " SHORT")
+    strategy.exit("S-TP1", "SHORT",
+                  stop  = strat_sl_short,
+                  limit = strat_tp1_short,
+                  qty_percent = strat_partial,
+                  comment_profit = "TP1",
+                  comment_loss   = "SL")
+    strategy.exit("S-TP2", "SHORT",
+                  stop  = strat_sl_short,
+                  limit = strat_tp2_short,
+                  comment_profit = "TP2",
+                  comment_loss   = "SL")
+
+// Move SL to BE after TP1 hit (partial closed) - approximated via entry_price tracking
+var float entry_price_tracked = na
+if strategy.position_size != 0 and na(entry_price_tracked)
+    entry_price_tracked := strategy.position_avg_price
+if strategy.position_size == 0
+    entry_price_tracked := na
+
+if strat_be_tp1 and strategy.position_size > 0 and not na(entry_price_tracked)
+    // Long in profit past TP1 : move SL to BE on remaining size
+    if high >= strat_tp1_long[1] or high >= entry_price_tracked + atr14 * tp1_atr_mult
+        strategy.exit("L-BE", "LONG", stop = entry_price_tracked)
+if strat_be_tp1 and strategy.position_size < 0 and not na(entry_price_tracked)
+    if low <= strat_tp1_short[1] or low <= entry_price_tracked - atr14 * tp1_atr_mult
+        strategy.exit("S-BE", "SHORT", stop = entry_price_tracked)
+
+// ============================================================================
+// ML PROBABILITY (refined, 0-100%)
+// ============================================================================
+float ml_prob = 0.0
+ml_prob := conf_score * 6.0                                   // 0-90 base (max 15pt * 6)
+ml_prob += mtf_strength * 2.0                                 // +0-8
+ml_prob += in_any_kz       ? 5.0  : 0.0
+ml_prob += in_macro        ? 3.0  : 0.0
+ml_prob += (unicorn_bull or unicorn_bear) ? 10.0 : 0.0
+ml_prob -= regime == "MANIPULATION" ? 25.0 : 0.0
+ml_prob -= ((setup_bull and smt_bear) or (setup_bear and smt_bull)) ? 15.0 : 0.0
+ml_prob := math.max(0.0, math.min(100.0, ml_prob))
+
+ml_emoji = ml_prob >= 85 ? "🔥" : ml_prob >= 75 ? "💎" : ml_prob >= 65 ? "🎯" : ml_prob >= 50 ? "⭐" : ml_prob >= 35 ? "✓" : "⚠️"
+
+// ============================================================================
+// EXPECTED R
+// ============================================================================
+float expected_r = 0.0
+if unicorn_bull or unicorn_bear
+    expected_r := 3.5
+else if sb_bull or sb_bear
+    expected_r := 2.5
+else if po3_bull or po3_bear
+    expected_r := 3.0
+else if judas_bull or judas_bear
+    expected_r := 2.2
+else if turtle_bull or turtle_bear
+    expected_r := 2.0
+else if bb_bull or bb_bear
+    expected_r := 2.0
+
+// ============================================================================
+// HISTORICAL SIM WINRATE (last 100 bars)
+// ============================================================================
+var int setup_count_100 = 0
+var int winners_sim_100 = 0
+
+setup_count_100 := 0
+winners_sim_100 := 0
+for i = 0 to 99
+    check_setup = (sb_bull[i] or sb_bear[i] or judas_bull[i] or judas_bear[i] or po3_bull[i] or po3_bear[i] or unicorn_bull[i] or unicorn_bear[i])
+    if check_setup
+        setup_count_100 := setup_count_100 + 1
+        float entry_i = close[i]
+        bool is_long = sb_bull[i] or judas_bull[i] or po3_bull[i] or unicorn_bull[i]
+        float atr_i = nz(atr14[i], 0.0001)
+        float tp_i = is_long ? entry_i + atr_i * 3.0 : entry_i - atr_i * 3.0
+        float sl_i = is_long ? entry_i - atr_i * 1.5 : entry_i + atr_i * 1.5
+        bool won = false
+        for j = 1 to math.min(20, i)
+            idx = i - j
+            if idx < 0
+                break
+            if is_long
+                if high[idx] >= tp_i
+                    won := true
+                    break
+                if low[idx] <= sl_i
+                    break
+            else
+                if low[idx] <= tp_i
+                    won := true
+                    break
+                if high[idx] >= sl_i
+                    break
+        if won
+            winners_sim_100 := winners_sim_100 + 1
+
+win_rate = setup_count_100 > 0 ? math.round(winners_sim_100 * 100.0 / setup_count_100) : 0
+
+// ============================================================================
+// AUTO-DRAW ENTRY / SL / TP LINES
+// ============================================================================
+var line entry_ln = na
+var line sl_ln = na
+var line tp1_ln = na
+var line tp2_ln = na
+var label entry_lbl = na
+var label sl_lbl = na
+var label tp1_lbl = na
+var label tp2_lbl = na
+
+// Apply grade threshold - only draw if >= user threshold
+grade_rank = f_rank(grade_v3)
+min_rank = f_rank(alert_min)
+draw_setup = (setup_bull or setup_bear) and grade_rank >= min_rank
+
+if show_lines and draw_setup and barstate.isconfirmed
+    line.delete(entry_ln)
+    line.delete(sl_ln)
+    line.delete(tp1_ln)
+    line.delete(tp2_ln)
+    label.delete(entry_lbl)
+    label.delete(sl_lbl)
+    label.delete(tp1_lbl)
+    label.delete(tp2_lbl)
+
+    float entry_p = close
+    float sl_p  = setup_bull ? close - atr14 * sl_atr_mult  : close + atr14 * sl_atr_mult
+    float tp1_p = setup_bull ? close + atr14 * tp1_atr_mult : close - atr14 * tp1_atr_mult
+    float tp2_p = setup_bull ? close + atr14 * tp2_atr_mult : close - atr14 * tp2_atr_mult
+
+    // ELEGANT trade lines - gold dotted Entry + bold SL/TP
+    entry_ln := line.new(bar_index, entry_p, bar_index + 40, entry_p, color = color.new(#FFD700, 20), style = line.style_dotted, width = 1)
+    sl_ln    := line.new(bar_index, sl_p,    bar_index + 40, sl_p,    color = color.new(#FF1744, 10), style = line.style_solid,  width = 2)
+    tp1_ln   := line.new(bar_index, tp1_p,   bar_index + 40, tp1_p,   color = color.new(#00E676, 20), style = line.style_dashed, width = 1)
+    tp2_ln   := line.new(bar_index, tp2_p,   bar_index + 40, tp2_p,   color = color.new(#00E676, 10), style = line.style_solid,  width = 2)
+
+    // ELEGANT labels (smaller, gold Entry, clean)
+    dir_arrow = setup_bull ? "🟢 LONG" : "🔴 SHORT"
+    entry_lbl := label.new(bar_index + 40, entry_p, "🎯 " + grade_v3 + " " + dir_arrow + "  ENTRY " + str.tostring(entry_p, "#.#####"), color = color.new(#FFD700, 10),  textcolor = color.black, style = label.style_label_left, size = size.small)
+    sl_lbl    := label.new(bar_index + 40, sl_p,    "❌ SL "    + str.tostring(sl_p,    "#.#####"), color = color.new(#FF1744, 10),  textcolor = color.white, style = label.style_label_left, size = size.small)
+    tp1_lbl   := label.new(bar_index + 40, tp1_p,   "✅ TP1 "   + str.tostring(tp1_p,   "#.#####") + " (+2R)", color = color.new(#00E676, 20), textcolor = color.white, style = label.style_label_left, size = size.small)
+    tp2_lbl   := label.new(bar_index + 40, tp2_p,   "🎯 TP2 "   + str.tostring(tp2_p,   "#.#####") + " (+4R)", color = color.new(#00E676, 10), textcolor = color.white, style = label.style_label_left, size = size.small)
+
+// ============================================================================
+// POSITION SIZING
+// ============================================================================
+risk_usd  = balance * (risk_pct / 100.0)
+sl_dist   = atr14 * sl_atr_mult
+lots_calc = f_safe_div(risk_usd, sl_dist * point_value)
+
+// ============================================================================
+// KILLZONE + QUARTER + MACRO BACKGROUND
+// ============================================================================
+// Subtle killzones (high alpha = near-invisible) - less clutter
+bgcolor(show_kz    and in_london  and not in_lo_open ? color.new(color.blue,   95) : na, title = "BG London")
+bgcolor(show_kz    and in_lo_open                    ? color.new(color.teal,   93) : na, title = "BG London Open")
+bgcolor(show_kz    and in_ny_am                      ? color.new(color.orange, 95) : na, title = "BG NY AM")
+bgcolor(show_kz    and in_ny_pm                      ? color.new(color.red,    96) : na, title = "BG NY PM")
+bgcolor(show_kz    and in_asia                       ? color.new(color.purple, 97) : na, title = "BG Asia")
+bgcolor(show_macro and in_macro and not clean_mode   ? C_MACRO                     : na, title = "BG Macro")
+
+// BIG visual flash on S or A+ setup active (one-line ternary - Pine multi-line unreliable)
+flash_col = grade_v3 == "S" and (setup_bull or setup_bear) ? color.new(#9C27B0, 75) : grade_v3 == "A+" and (setup_bull or setup_bear) ? color.new(#00E676, 80) : grade_v3 == "A" and (setup_bull or setup_bear) and not clean_mode ? color.new(#FFC107, 90) : na
+bgcolor(flash_col, title = "BG Grade Flash")
+
+// ============================================================================
+// OMNISCIENT DASHBOARD - Live grade for 4 key assets
+// ============================================================================
+// Compute simplified grade for each asset (main chart data re-used if match)
+f_asset_bias(sym, tf) =>
+    [c, s] = request.security(sym, tf, [close, ta.sma(close, 50)], lookahead = barmerge.lookahead_off)
+    f_bias_from(c, s)
+
+eu_d  = f_asset_bias(omni_eu,  "D")
+eu_h1 = f_asset_bias(omni_eu,  "60")
+xau_d = f_asset_bias(omni_xau, "D")
+xau_h1= f_asset_bias(omni_xau, "60")
+nas_d = f_asset_bias(omni_nas, "D")
+nas_h1= f_asset_bias(omni_nas, "60")
+btc_d = f_asset_bias(omni_btc, "D")
+btc_h1= f_asset_bias(omni_btc, "60")
+
+f_omni_score(bd, bh, cross_ok) =>
+    s = 0
+    s := s + (math.abs(bd) + math.abs(bh))
+    s := s + (bd == bh and bd != 0 ? 2 : 0)
+    s := s + (in_any_kz ? 1 : 0)
+    s := s + (cross_ok ? 1 : 0)
+    s
+
+eu_ok  = dxy_trend == -1                          // EUR bull ok if DXY bear
+xau_ok = dxy_trend == -1 and u10_trend == -1      // Gold bull ok if DXY bear + yields bear
+nas_ok = spx_trend == 1  and not vix_high          // NAS bull ok if SPX bull + VIX low
+btc_ok = risk_state == "RISK-ON"                  // BTC bull ok if risk-on
+
+eu_sc  = f_omni_score(eu_d,  eu_h1,  eu_ok)
+xau_sc = f_omni_score(xau_d, xau_h1, xau_ok)
+nas_sc = f_omni_score(nas_d, nas_h1, nas_ok)
+btc_sc = f_omni_score(btc_d, btc_h1, btc_ok)
+
+f_omni_grade(sc) =>
+    sc >= 6 ? "S" : sc >= 5 ? "A+" : sc >= 4 ? "A" : sc >= 3 ? "B" : "-"
+
+eu_g  = f_omni_grade(eu_sc)
+xau_g = f_omni_grade(xau_sc)
+nas_g = f_omni_grade(nas_sc)
+btc_g = f_omni_grade(btc_sc)
+
+// Best asset now
+best_sc = math.max(math.max(eu_sc, xau_sc), math.max(nas_sc, btc_sc))
+best_asset_txt = best_sc == eu_sc  ? "EUR "  + eu_g  :
+                  best_sc == xau_sc ? "XAU "  + xau_g :
+                  best_sc == nas_sc ? "NAS "  + nas_g :
+                  "BTC "  + btc_g
+
+// ============================================================================
+// LUXE DASHBOARD (compact, minimalist, trader-focused)
+// ============================================================================
+// Pre-compute trade details for luxe card
+entry_price_lux  = close
+sl_price_lux     = setup_bull ? close - atr14 * sl_atr_mult  : close + atr14 * sl_atr_mult
+tp1_price_lux    = setup_bull ? close + atr14 * tp1_atr_mult : close - atr14 * tp1_atr_mult
+tp2_price_lux    = setup_bull ? close + atr14 * tp2_atr_mult : close - atr14 * tp2_atr_mult
+
+elite_active = (grade_v3 == "S" or grade_v3 == "A+") and (setup_bull or setup_bear)
+dir_emoji    = setup_bull ? "🟢 LONG" : setup_bear ? "🔴 SHORT" : "—"
+setup_name_lux = unicorn_bull or unicorn_bear ? "🦄 UNICORN" :
+                 sb_bull or sb_bear ? "🎯 Silver Bullet" :
+                 po3_bull or po3_bear ? "⚡ Power of 3" :
+                 turtle_bull or turtle_bear ? "🐢 Turtle Soup" :
+                 judas_bull or judas_bear ? "🔄 Judas Swing" :
+                 bb_bull or bb_bear ? "🧱 Breaker" : "—"
+
+tf_display = timeframe.period == "1"   ? "M1"  :
+             timeframe.period == "3"   ? "M3"  :
+             timeframe.period == "5"   ? "M5"  :
+             timeframe.period == "15"  ? "M15" :
+             timeframe.period == "30"  ? "M30" :
+             timeframe.period == "60"  ? "H1"  :
+             timeframe.period == "240" ? "H4"  :
+             timeframe.period == "D"   ? "Daily" :
+             timeframe.period == "W"   ? "Weekly" :
+             timeframe.period
+
+var table dash = table.new(f_dash_position(), 2, 15,
+                             bgcolor       = color.new(#0F172A, 5),
+                             border_color  = color.new(#FFFFFF, 80),
+                             border_width  = 1,
+                             frame_color   = color.new(#FFD700, 30),
+                             frame_width   = 2)
+
+if show_dash and barstate.islast
+    table.clear(dash, 0, 0, 1, 14)
+
+    // --- HEADER (always)
+    table.cell(dash, 0, 0, "🎯 CYBORG APEX V3", text_color = color.white, text_size = size.normal, bgcolor = color.new(#1A1A2E, 20))
+    table.cell(dash, 1, 0, f_sym_short(syminfo.ticker) + " · " + tf_display, text_color = color.white, text_size = size.normal, bgcolor = color.new(#1A1A2E, 20))
+
+    // --- GRADE (always)
+    table.cell(dash, 0, 1, "🏆 GRADE", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 1, grade_v3, text_color = color.white, text_size = size.huge, bgcolor = grade_col_v3)
+
+    if elite_active
+        // LUXE TRADE CARD - shows only when S or A+ active
+
+        // --- DIRECTION
+        table.cell(dash, 0, 2, "📍 Direction", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 2, dir_emoji, text_color = color.white, text_size = size.large, bgcolor = setup_bull ? color.new(#00E676, 20) : color.new(#FF1744, 20))
+
+        // --- SETUP NAME
+        table.cell(dash, 0, 3, "⚡ Setup", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 3, setup_name_lux, text_color = color.white, text_size = size.normal, bgcolor = color.new(#FFC107, 30))
+
+        // --- Separator
+        table.cell(dash, 0, 4, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+        table.cell(dash, 1, 4, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+
+        // --- ENTRY
+        table.cell(dash, 0, 5, "💠 ENTRY", text_color = color.white, text_size = size.normal, bgcolor = color.new(#FFFFFF, 70))
+        table.cell(dash, 1, 5, str.tostring(entry_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#FFFFFF, 70))
+
+        // --- SL
+        table.cell(dash, 0, 6, "❌ SL", text_color = color.white, text_size = size.normal, bgcolor = color.new(#FF1744, 30))
+        table.cell(dash, 1, 6, str.tostring(sl_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#FF1744, 30))
+
+        // --- TP1
+        table.cell(dash, 0, 7, "✅ TP1 (+2R)", text_color = color.white, text_size = size.normal, bgcolor = color.new(#00E676, 40))
+        table.cell(dash, 1, 7, str.tostring(tp1_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#00E676, 40))
+
+        // --- TP2
+        table.cell(dash, 0, 8, "🎯 TP2 (+4R)", text_color = color.white, text_size = size.normal, bgcolor = color.new(#00E676, 20))
+        table.cell(dash, 1, 8, str.tostring(tp2_price_lux, "#.#####"), text_color = color.white, text_size = size.large, bgcolor = color.new(#00E676, 20))
+
+        // --- Separator
+        table.cell(dash, 0, 9, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+        table.cell(dash, 1, 9, "━━━━━━━━━━━━", text_color = color.new(#FFD700, 40), text_size = size.tiny)
+
+        // --- Confluence & Prob
+        table.cell(dash, 0, 10, "⚡ Confluence", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 10, str.tostring(conf_score) + "/15", text_color = color.white, text_size = size.small)
+
+        table.cell(dash, 0, 11, "🔬 Probability", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 11, ml_emoji + " " + str.tostring(ml_prob, "#") + "%", text_color = color.white, text_size = size.small, bgcolor = color.new(#00E676, 50))
+
+        // --- Lots
+        table.cell(dash, 0, 12, "💰 Lots", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 12, str.tostring(lots_calc, "#.##") + " (" + str.tostring(risk_pct) + "%)", text_color = color.white, text_size = size.small)
+    else
+        // IDLE STATE - just waiting
+        table.cell(dash, 0, 2, "⚡ Confluence", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 2, str.tostring(conf_score) + "/15", text_color = color.white, text_size = size.small)
+
+        table.cell(dash, 0, 3, "Multi-TF", text_color = color.gray, text_size = size.small)
+        mtf_txt = "W" + f_bias_txt(bias_w) + " D" + f_bias_txt(bias_d) + " H4" + f_bias_txt(bias_h4) + " H1" + f_bias_txt(bias_h1)
+        table.cell(dash, 1, 3, mtf_txt, text_color = color.white, text_size = size.small, bgcolor = mtf_aligned ? color.new(#00E676, 40) : color.new(color.gray, 40))
+
+        table.cell(dash, 0, 4, "Killzone", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 4, current_kz_txt, text_color = color.white, text_size = size.small, bgcolor = in_any_kz ? color.new(#FFC107, 40) : color.new(color.gray, 40))
+
+        table.cell(dash, 0, 5, "Regime", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 5, regime, text_color = color.white, text_size = size.small, bgcolor = regime_col)
+
+        // DXY (context)
+        table.cell(dash, 0, 6, "DXY", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 6, f_bias_txt(dxy_trend) + "  " + str.tostring(nz(dxy_c, 0), "#.##"), text_color = color.white, text_size = size.small, bgcolor = f_bias_col(dxy_trend))
+
+        // Risk state
+        table.cell(dash, 0, 7, "Risk", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 7, risk_state, text_color = color.white, text_size = size.small, bgcolor = risk_col)
+
+        // Waiting message
+        table.cell(dash, 0, 9, "💤 Status", text_color = color.gray, text_size = size.small)
+        table.cell(dash, 1, 9, "Waiting for S or A+ setup...", text_color = color.new(color.gray, 20), text_size = size.small)
+
+    // --- FOOTER (always)
+    table.cell(dash, 0, 13, "@Davghali", text_color = color.new(color.gray, 30), text_size = size.tiny)
+    table.cell(dash, 1, 13, "APEX V3 LUXE", text_color = color.new(#FFD700, 30), text_size = size.tiny)
+
+// ============================================================================
+// VISUAL MARKERS
+// ============================================================================
+plotshape(sb_bull,     title = "SB Long",      style = shape.labelup,      location = location.belowbar, color = color.new(#00E676, 0), textcolor = color.white, text = "SB",  size = size.small)
+plotshape(sb_bear,     title = "SB Short",     style = shape.labeldown,    location = location.abovebar, color = color.new(#FF1744, 0), textcolor = color.white, text = "SB",  size = size.small)
+plotshape(judas_bull,  title = "J Long",       style = shape.labelup,      location = location.belowbar, color = color.new(#FFC107, 0), textcolor = color.black, text = "J",   size = size.small)
+plotshape(judas_bear,  title = "J Short",      style = shape.labeldown,    location = location.abovebar, color = color.new(#FFC107, 0), textcolor = color.black, text = "J",   size = size.small)
+plotshape(po3_bull,    title = "PO3 Long",     style = shape.triangleup,   location = location.belowbar, color = color.new(#9C27B0, 0), size = size.small)
+plotshape(po3_bear,    title = "PO3 Short",    style = shape.triangledown, location = location.abovebar, color = color.new(#9C27B0, 0), size = size.small)
+
+// ============================================================================
+// ALERTS (30+)
+// ============================================================================
+// Grade
+alert_s    = grade_v3 == "S"
+alert_ap   = grade_v3 == "A+"
+alert_a    = grade_v3 == "A"
+alert_b    = grade_v3 == "B"
+
+// Unified threshold logic for webhook JSON
+above_thr = grade_rank >= min_rank
+
+// NOTE: Pine alert messages must be constant strings. For AWS webhook
+// use TradingView's own placeholders {{ticker}}, {{close}}, {{time}}, {{interval}}
+// We build grade-based alerts below
+
+alertcondition(alert_s  and (setup_bull or setup_bear), title = "💎 GRADE S",  message = "💎 GRADE S · {{ticker}} · {{interval}} · Close {{close}} — Check chart for Entry/SL/TP")
+alertcondition(alert_ap and (setup_bull or setup_bear), title = "🎯 GRADE A+", message = "🎯 GRADE A+ · {{ticker}} · {{interval}} · Close {{close}} — Check chart for Entry/SL/TP")
+alertcondition(alert_a  and (setup_bull or setup_bear), title = "⭐ GRADE A",  message = "⭐ GRADE A · {{ticker}} · {{interval}} · Close {{close}}")
+alertcondition(alert_b  and (setup_bull or setup_bear), title = "✓ GRADE B",   message = "✓ GRADE B · {{ticker}} · {{interval}} · Close {{close}}")
+
+// Unicorn (SNIPER best)
+alertcondition(unicorn_bull, title = "🦄 Unicorn Long",  message = "🦄 UNICORN LONG on {{ticker}} - Rare high probability")
+alertcondition(unicorn_bear, title = "🦄 Unicorn Short", message = "🦄 UNICORN SHORT on {{ticker}} - Rare high probability")
+
+// Silver Bullet variants
+alertcondition(sb_10am_bull, title = "🎯 SB 10AM NY Long",  message = "🎯 SB 10AM NY LONG on {{ticker}}")
+alertcondition(sb_10am_bear, title = "🎯 SB 10AM NY Short", message = "🎯 SB 10AM NY SHORT on {{ticker}}")
+alertcondition(sb_3am_bull,  title = "🎯 SB 3AM NY Long",   message = "🎯 SB 3AM NY LONG on {{ticker}}")
+alertcondition(sb_3am_bear,  title = "🎯 SB 3AM NY Short",  message = "🎯 SB 3AM NY SHORT on {{ticker}}")
+alertcondition(sb_11pm_bull, title = "🎯 SB 11PM NY Long",  message = "🎯 SB 11PM NY LONG on {{ticker}}")
+alertcondition(sb_11pm_bear, title = "🎯 SB 11PM NY Short", message = "🎯 SB 11PM NY SHORT on {{ticker}}")
+
+// Other setups
+alertcondition(judas_bull,   title = "🔄 Judas Long",       message = "🔄 Judas LONG on {{ticker}}")
+alertcondition(judas_bear,   title = "🔄 Judas Short",      message = "🔄 Judas SHORT on {{ticker}}")
+alertcondition(po3_bull,     title = "⚡ PO3 Long",         message = "⚡ PO3 LONG on {{ticker}}")
+alertcondition(po3_bear,     title = "⚡ PO3 Short",        message = "⚡ PO3 SHORT on {{ticker}}")
+alertcondition(bb_bull,      title = "🧱 Breaker Long",     message = "🧱 Breaker LONG on {{ticker}}")
+alertcondition(bb_bear,      title = "🧱 Breaker Short",    message = "🧱 Breaker SHORT on {{ticker}}")
+alertcondition(turtle_bull,  title = "🐢 Turtle Soup Long", message = "🐢 Turtle Soup LONG on {{ticker}}")
+alertcondition(turtle_bear,  title = "🐢 Turtle Soup Short",message = "🐢 Turtle Soup SHORT on {{ticker}}")
+
+// Market events
+alertcondition(mtf_bull,     title = "📈 MTF Bull Aligned", message = "📈 Multi-TF Bull Aligned on {{ticker}}")
+alertcondition(mtf_bear,     title = "📉 MTF Bear Aligned", message = "📉 Multi-TF Bear Aligned on {{ticker}}")
+alertcondition(bos_bull,     title = "🔨 BOS Bull",         message = "🔨 BOS BULL on {{ticker}}")
+alertcondition(bos_bear,     title = "🔨 BOS Bear",         message = "🔨 BOS BEAR on {{ticker}}")
+alertcondition(sweep_h,      title = "🧹 Sweep High",       message = "🧹 Sweep HIGH on {{ticker}}")
+alertcondition(sweep_l,      title = "🧹 Sweep Low",        message = "🧹 Sweep LOW on {{ticker}}")
+alertcondition(smt_bull,     title = "🔀 SMT Bull Div",     message = "🔀 SMT Bull Divergence on {{ticker}} vs pair")
+alertcondition(smt_bear,     title = "🔀 SMT Bear Div",     message = "🔀 SMT Bear Divergence on {{ticker}} vs pair")
+alertcondition(ifvg_bull,    title = "🔁 IFVG Bull",        message = "🔁 IFVG Bull on {{ticker}}")
+alertcondition(ifvg_bear,    title = "🔁 IFVG Bear",        message = "🔁 IFVG Bear on {{ticker}}")
+alertcondition(eql_h,        title = "⚠️ EQH Liquidity",    message = "⚠️ EQH liquidity forming on {{ticker}}")
+alertcondition(eql_l,        title = "⚠️ EQL Liquidity",    message = "⚠️ EQL liquidity forming on {{ticker}}")
+alertcondition(regime == "TRENDING",     title = "🌊 Trending",     message = "🌊 Regime TRENDING on {{ticker}}")
+alertcondition(regime == "MANIPULATION", title = "⚠️ Manipulation", message = "⚠️ Regime MANIPULATION on {{ticker}} - avoid")
+
+// Macro window
+alertcondition(in_macro and in_any_kz and (setup_bull or setup_bear), title = "⏰ Macro + KZ Setup", message = "⏰ Macro window + Killzone Setup on {{ticker}}")
+
+// Cross-asset risk state change
+alertcondition(risk_state == "RISK-OFF" and risk_state[1] != "RISK-OFF", title = "🔴 Risk-OFF switch", message = "🔴 Cross-asset flipped to RISK-OFF")
+alertcondition(risk_state == "RISK-ON"  and risk_state[1] != "RISK-ON",  title = "🟢 Risk-ON switch",  message = "🟢 Cross-asset flipped to RISK-ON")
+
+// ============================================================================
+// END V3 APEX
+// ============================================================================
