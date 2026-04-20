@@ -631,7 +631,7 @@ setup_bear = sb_bear or judas_bear or po3_bear or bb_bear or turtle_bear or unic
 // ============================================================================
 // VOLUME PROFILE PROXY (POC, VAH, VAL)
 // ============================================================================
-vp_n = math.min(vp_lookback, bar_index)
+vp_n = math.max(1, math.min(vp_lookback, bar_index))
 var float vp_hi = na
 var float vp_lo = na
 vp_hi := ta.highest(high, vp_n)
