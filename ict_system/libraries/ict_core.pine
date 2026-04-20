@@ -1,0 +1,80 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ict_core — ICT core detections library                                 ║
+// ║   Power of Three (PO3), Opens, FVG, IFVG, BPR, OB, BB                    ║
+// ║                                                                          ║
+// ║   Phase A.1 SKELETON — functions to be implemented in Phase A.2          ║
+// ║   Spec : PROMPT_ULTIME_ICT_TRADINGVIEW.md § 3.1 → § 3.4                  ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+library("ict_core", overlay = true)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// @function Return library version
+// @returns Version string
+export version() =>
+    "ict_core v0.1 — Phase A.1 Skeleton"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TO IMPLEMENT IN PHASE A.2
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// § 3.1 Power of Three (PO3)
+// ───────────────────────────
+// @function Compute PO3 phase for current daily candle
+// @returns [phase_str, direction_str] where phase in {accum, manip, distrib}
+// export f_po3_daily() => ...
+//
+// @function Compute PO3 phase for current weekly candle
+// @param open_mode "Sunday 17:00 NY" or "Monday 00:00 NY"
+// @returns [phase_str, direction_str]
+// export f_po3_weekly(simple string open_mode) => ...
+//
+//
+// § 3.2 Opens (reference prices)
+// ───────────────────────────────
+// @function Midnight NY open (equivalent to Daily Open in ICT)
+// @returns float open price
+// export f_midnight_open() => ...
+//
+// @function Weekly open
+// @param open_mode as per input
+// @returns float open price
+// export f_weekly_open(simple string open_mode) => ...
+//
+// @function True Day open (00:00 NY pivot)
+// @returns float open price
+// export f_true_day_open() => ...
+//
+//
+// § 3.4 PD Arrays (internal liquidity)
+// ─────────────────────────────────────
+// @function Detect bullish FVG on current bar
+// @returns [bool detected, float top, float bottom]
+// export f_detect_fvg_bull() => ...
+//
+// @function Detect bearish FVG on current bar
+// @returns [bool detected, float top, float bottom]
+// export f_detect_fvg_bear() => ...
+//
+// @function Detect Inverted FVG (FVG closed through by body)
+// @returns [bool detected, string direction]
+// export f_detect_ifvg() => ...
+//
+// @function Detect Balanced Price Range (bull FVG + bear FVG overlap)
+// @returns [bool detected, float top, float bottom]
+// export f_detect_bpr() => ...
+//
+// @function Detect Order Block STRICT (must have sweep + FVG + BOS)
+// @param require_3_conditions If true, all 3 conditions required (per spec § 3.4)
+// @returns [bool bull_ob, bool bear_ob, float ob_top, float ob_bottom]
+// export f_detect_ob(simple bool require_3_conditions) => ...
+//
+// @function Detect Breaker Block (invalidated OB post-CHoCH)
+// @returns [bool bull_bb, bool bear_bb]
+// export f_detect_bb() => ...

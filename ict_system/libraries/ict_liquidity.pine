@@ -1,0 +1,61 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ict_liquidity — External time-based liquidity library                  ║
+// ║   PDH/PDL, PWH/PWL, PMH/PML, Previous KZ H/L, EQH/EQL                    ║
+// ║                                                                          ║
+// ║   Phase A.1 SKELETON — functions to be implemented in Phase A.2          ║
+// ║   Spec : PROMPT_ULTIME_ICT_TRADINGVIEW.md § 3.3                          ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+library("ict_liquidity", overlay = true)
+
+// @function Return library version
+// @returns Version string
+export version() =>
+    "ict_liquidity v0.1 — Phase A.1 Skeleton"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TO IMPLEMENT IN PHASE A.2
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// § 3.3 External Time-Based Liquidity
+// ────────────────────────────────────
+// @function Previous Day High / Low
+// @returns [float high, float low, bool swept_high, bool swept_low]
+// export f_pdh_pdl() => ...
+//
+// @function Previous Week High / Low
+// @returns [float high, float low, bool swept_high, bool swept_low]
+// export f_pwh_pwl() => ...
+//
+// @function Previous Month High / Low
+// @returns [float high, float low, bool swept_high, bool swept_low]
+// export f_pmh_pml() => ...
+//
+// @function Previous killzone High / Low
+// @param session Session string "HHMM-HHMM"
+// @returns [float kz_high, float kz_low, bool swept_high, bool swept_low]
+// export f_kz_prev_hl(simple string session) => ...
+//
+//
+// § 3.3 Equal Highs / Lows (EQH / EQL)
+// ─────────────────────────────────────
+// @function Detect Equal Highs within tolerance
+// @param tolerance_pips Tolerance in pips (default 2 on EURUSD)
+// @param lookback Bars to search
+// @returns [bool detected, float eqh_level, int count]
+// export f_detect_eqh(simple float tolerance_pips, simple int lookback) => ...
+//
+// @function Detect Equal Lows within tolerance
+// @param tolerance_pips Tolerance in pips
+// @param lookback Bars to search
+// @returns [bool detected, float eql_level, int count]
+// export f_detect_eql(simple float tolerance_pips, simple int lookback) => ...
+//
+// @function State tracking : active / swept / expired
+// @param level Price level
+// @param age_bars How many bars old
+// @returns string state in {active, swept, expired}
+// export f_liquidity_state(float level, simple int age_bars) => ...

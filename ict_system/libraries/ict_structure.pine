@@ -1,0 +1,54 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ict_structure — Market Structure library                               ║
+// ║   BOS, CHoCH, CISD, MSS (alias), Premium/Discount/Equilibrium            ║
+// ║                                                                          ║
+// ║   Phase A.1 SKELETON — functions to be implemented in Phase A.2          ║
+// ║   Spec : PROMPT_ULTIME_ICT_TRADINGVIEW.md § 3.5, § 3.6                   ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+library("ict_structure", overlay = true)
+
+// @function Return library version
+// @returns Version string
+export version() =>
+    "ict_structure v0.1 — Phase A.1 Skeleton"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TO IMPLEMENT IN PHASE A.2
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// § 3.5 Market Structure
+// ───────────────────────
+// @function Break of Structure — body close beyond last swing
+// @param body_close If true, requires candle BODY close (not wick) to confirm
+// @param swing_len Swing pivots lookback
+// @returns [bool broken, string direction, float breakout_level]
+// export f_bos(simple bool body_close, simple int swing_len) => ...
+//
+// @function Change of Character — liquidity grab + BB + IFVG invalidates prior structure
+// @returns [bool detected, string new_direction]
+// export f_choch() => ...
+//
+// @function Change in State of Delivery — confirmation on LTF
+// @returns [bool detected, string direction]
+// export f_cisd() => ...
+//
+// @function Market Structure Shift (alias for CHoCH per spec § 3.5)
+// @returns [bool detected, string direction]
+// export f_mss() => ...
+//
+//
+// § 3.6 Premium / Discount / Equilibrium
+// ───────────────────────────────────────
+// @function Return current PD zone based on last swing range
+// @param eq_lo Equilibrium lower bound (default 0.45)
+// @param eq_hi Equilibrium upper bound (default 0.55)
+// @returns string zone in {premium, discount, equilibrium}
+// export f_pd_zone(simple float eq_lo, simple float eq_hi) => ...
+//
+// @function Return Optimal Trade Entry (OTE) zone 62-79% Fib
+// @returns [float ote_top, float ote_bottom]
+// export f_ote_zone() => ...

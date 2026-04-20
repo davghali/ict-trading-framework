@@ -1,0 +1,482 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ICT STRATEGY v1 — PROMPT_ULTIME COMPLIANT                              ║
+// ║   Phase A.1 — Skeleton + Inputs (no trading logic yet)                   ║
+// ║                                                                          ║
+// ║   Author  : David Ghali x Claude                                         ║
+// ║   Created : 2026-04-21                                                   ║
+// ║   Spec    : PROMPT_ULTIME_ICT_TRADINGVIEW.md                             ║
+// ║                                                                          ║
+// ║   PHASE ROADMAP :                                                        ║
+// ║     A.1  Skeleton + Inputs ........... ← YOU ARE HERE                    ║
+// ║     A.2  ICT core detection libs                                         ║
+// ║     A.3  Daily / Weekly bias engine                                      ║
+// ║     A.4  Continuation setup logic                                        ║
+// ║     A.5  Reversal setup logic                                            ║
+// ║     A.6  Filters (KZ, news, SMT, DXY)                                    ║
+// ║     A.7  Risk management (sizing, SL/TP, DD)                             ║
+// ║     A.8  Performance report                                              ║
+// ║     A.9  Walk-forward validation                                         ║
+// ║     B.*  Indicator conversion + webhook alerts                           ║
+// ║                                                                          ║
+// ║   RULES (from PROMPT_ULTIME § 13) :                                      ║
+// ║     1. Code modulaire, each ICT concept in its own function              ║
+// ║     2. No repainting : barstate.isconfirmed + lookahead_off              ║
+// ║     3. Pas de magic numbers : tout via input.*                           ║
+// ║     4. snake_case for vars, f_ prefix for functions, SC_ for constants   ║
+// ║     5. Section headers : // ═══ SECTION ═══                              ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+strategy(
+     title                   = "ICT Strategy v1 — PROMPT_ULTIME",
+     shorttitle              = "ICT-v1",
+     overlay                 = true,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.01,
+     slippage                = 2,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     process_orders_on_close = true,
+     margin_long             = 100,
+     margin_short            = 100,
+     max_boxes_count         = 500,
+     max_lines_count         = 500,
+     max_labels_count        = 500,
+     max_bars_back           = 1000,
+     use_bar_magnifier       = false
+ )
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   INPUT GROUPS (9 groups as per PROMPT_ULTIME § 8)                       ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 1 — 🎯 BIAIS & STRUCTURE
+// ═══════════════════════════════════════════════════════════════════════════
+g1_bias = "🎯 Biais & Structure"
+
+use_po3_daily  = input.bool(true, "PO3 Daily bias",
+     group   = g1_bias,
+     tooltip = "Compute Power of Three phase (Accum / Manip / Distrib) on daily candles")
+
+use_po3_weekly = input.bool(true, "PO3 Weekly bias",
+     group   = g1_bias,
+     tooltip = "Compute PO3 on weekly candles — used for HTF directional bias")
+
+weekly_open_mode = input.string("Sunday 17:00 NY", "Weekly Open reference",
+     options = ["Sunday 17:00 NY", "Monday 00:00 NY"],
+     group   = g1_bias,
+     tooltip = "Sunday 17:00 = futures session open · Monday 00:00 = forex cash open")
+
+bos_body_close = input.bool(true, "BOS requires BODY close",
+     group   = g1_bias,
+     tooltip = "If true, only a candle BODY closing beyond last swing counts as BOS. Wicks don't count")
+
+require_alignment = input.bool(true, "Require Daily + Weekly bias aligned",
+     group   = g1_bias,
+     tooltip = "If W and D bias conflict, no trades taken. Set false to allow D-only setups")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 2 — 💧 LIQUIDITÉS (external time-based)
+// ═══════════════════════════════════════════════════════════════════════════
+g2_liq = "💧 Liquidités (external)"
+
+show_pdh_pdl = input.bool(true, "PDH / PDL (Previous Day High/Low)",
+     group   = g2_liq,
+     tooltip = "Key intraday liquidity levels. Price often sweeps these")
+
+show_pwh_pwl = input.bool(true, "PWH / PWL (Previous Week High/Low)",
+     group   = g2_liq)
+
+show_pmh_pml = input.bool(true, "PMH / PML (Previous Month High/Low)",
+     group   = g2_liq)
+
+show_kz_hl = input.bool(true, "Previous KZ High/Low (Asia/London/NY)",
+     group   = g2_liq,
+     tooltip = "Tracks high/low of each previous killzone — liquidity targets for next session")
+
+eq_tolerance_pips = input.float(2.0, "EQH/EQL tolerance (pips, EURUSD ref)",
+     minval  = 0.5, maxval = 20.0, step = 0.5,
+     group   = g2_liq,
+     tooltip = "Two wicks within N pips = Equal Highs/Lows. Default 2 pips on EURUSD. Adapts per instrument")
+
+relative_eq_tolerance_pips = input.float(5.0, "Relative EQH/EQL tolerance (pips)",
+     minval  = 2.0, maxval = 50.0, step = 0.5,
+     group   = g2_liq,
+     tooltip = "Wider tolerance for 'relative equal highs/lows' where institutions target slightly unequal levels")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 3 — 📦 PD ARRAYS (internal liquidity)
+// ═══════════════════════════════════════════════════════════════════════════
+g3_pd = "📦 PD Arrays (internal)"
+
+show_fvg = input.bool(true, "FVG (Fair Value Gap)",
+     group   = g3_pd,
+     tooltip = "3-candle imbalance. Bull FVG : low[0] > high[2]. Bear FVG : high[0] < low[2]")
+
+show_ifvg = input.bool(true, "IFVG (Inverted FVG)",
+     group   = g3_pd,
+     tooltip = "An FVG that has been closed through — becomes inverted support/resistance")
+
+show_bpr = input.bool(true, "BPR (Balanced Price Range)",
+     group   = g3_pd,
+     tooltip = "Overlap of a bullish + bearish FVG. High-reactivity zone")
+
+show_ob = input.bool(true, "OB (Order Block)",
+     group   = g3_pd,
+     tooltip = "Last opposite candle before impulsive move. Must satisfy 3 conditions if strict mode")
+
+show_bb = input.bool(true, "BB (Breaker Block)",
+     group   = g3_pd,
+     tooltip = "An invalidated OB that now acts as opposite-direction support/resistance after CHoCH")
+
+fvg_age_max = input.int(50, "FVG max age (bars)",
+     minval  = 5, maxval = 500,
+     group   = g3_pd,
+     tooltip = "After N bars, old FVG is considered expired and no longer tradable")
+
+ob_require_3_conditions = input.bool(true, "OB strict : sweep + FVG + BOS required",
+     group   = g3_pd,
+     tooltip = "STRICT ICT definition : last opposite candle before move that (a) took liquidity, (b) delivered FVG, (c) created BOS. All 3 required")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 4 — ⏰ KILLZONES (New York time)
+// ═══════════════════════════════════════════════════════════════════════════
+g4_kz = "⏰ Killzones (NY time)"
+
+kz_timezone = input.string("America/New_York", "Timezone reference",
+     group   = g4_kz,
+     tooltip = "All KZ hours are expressed in this timezone")
+
+kz_asia_session    = input.session("2000-0000", "Asia KZ",
+     group = g4_kz, tooltip = "Default : 20:00 - 00:00 NY (accumulation phase)")
+
+kz_london_session  = input.session("0200-0500", "London KZ",
+     group = g4_kz, tooltip = "Default : 02:00 - 05:00 NY (manipulation / distribution)")
+
+kz_ny_am_session   = input.session("0930-1100", "NY AM KZ",
+     group = g4_kz, tooltip = "Default : 09:30 - 11:00 NY (main distribution)")
+
+kz_ny_lunch_session = input.session("1200-1300", "NY Lunch (NO TRADE)",
+     group = g4_kz, tooltip = "Default : 12:00 - 13:00 NY. Low-volume chop. NO entries allowed")
+
+kz_ny_pm_session   = input.session("1330-1600", "NY PM KZ",
+     group = g4_kz, tooltip = "Default : 13:30 - 16:00 NY (reversal of AM or continuation)")
+
+show_kz_bg = input.bool(true, "Highlight Killzones (background)",
+     group   = g4_kz)
+
+kz_mode = input.string("auto", "KZ behavior mode",
+     options = ["auto", "continuation", "reversal", "both"],
+     group   = g4_kz,
+     tooltip = "auto : decides based on Asian range sweep context · continuation : only trend trades · reversal : only mean-reversion · both : enable both setup types")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 5 — 🔁 CORRÉLATION / SMT
+// ═══════════════════════════════════════════════════════════════════════════
+g5_smt = "🔁 Corrélation / SMT"
+
+enable_smt = input.bool(true, "Enable SMT Divergence",
+     group   = g5_smt,
+     tooltip = "Smart Money Technique : if this pair makes new high/low but correlated pair doesn't → divergence signal")
+
+smt_symbol_override = input.symbol("", "Override correlation symbol (blank = auto)",
+     group   = g5_smt,
+     tooltip = "Auto-detect: EURUSD↔DXY · XAUUSD↔XAGUSD · NAS100↔SP500 · BTCUSD↔ETHUSD")
+
+require_dxy_confirmation = input.bool(true, "Require DXY confirmation (forex only)",
+     group   = g5_smt,
+     tooltip = "For EURUSD/GBPUSD : trade blocked if DXY doesn't move inversely in coherent manner")
+
+smt_lookback = input.int(20, "SMT lookback (bars)",
+     minval  = 5, maxval = 200,
+     group   = g5_smt,
+     tooltip = "How far back to compare highs/lows between main and correlated symbol")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 6 — 🛡️ RISK MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+g6_risk = "🛡️ Risk Management"
+
+risk_pct = input.float(0.5, "Risk % per trade",
+     minval  = 0.1, maxval = 5.0, step = 0.1,
+     group   = g6_risk,
+     tooltip = "% of equity risked per trade. 0.5% is the spec standard. Max 2% for FTMO safety")
+
+rr_target_1 = input.float(2.0, "RR Target 1 (TP1)",
+     minval  = 1.0, maxval = 10.0, step = 0.1,
+     group   = g6_risk,
+     tooltip = "First take-profit in R-multiples. Default 2R per spec")
+
+rr_target_2 = input.float(3.0, "RR Target 2 (TP2)",
+     minval  = 1.5, maxval = 20.0, step = 0.1,
+     group   = g6_risk,
+     tooltip = "Second take-profit. Default 3R per spec")
+
+partial_tp1_pct = input.float(50.0, "% closed at TP1",
+     minval  = 0, maxval = 100, step = 5,
+     group   = g6_risk,
+     tooltip = "% of position closed when TP1 hits. Remaining runs to TP2 (or BE if enabled)")
+
+breakeven_on_tp1 = input.bool(true, "Move SL to BE after TP1",
+     group   = g6_risk,
+     tooltip = "Once TP1 fills, remaining position gets SL moved to entry (breakeven)")
+
+sl_buffer_pips = input.float(2.0, "SL buffer beyond sweep (pips)",
+     minval  = 0, maxval = 10, step = 0.5,
+     group   = g6_risk,
+     tooltip = "Extra buffer added to SL beyond the sweep high/low")
+
+// SL MAX by instrument (per spec § 5)
+max_sl_pips_eurusd    = input.float(20.0, "Max SL EURUSD (pips)",   group = g6_risk)
+max_sl_pips_gbpusd    = input.float(20.0, "Max SL GBPUSD (pips)",   group = g6_risk)
+max_sl_pips_xauusd    = input.float(300.0, "Max SL XAUUSD (pips = $3)", group = g6_risk)
+max_sl_points_nas100  = input.float(30.0, "Max SL NAS100 (points)", group = g6_risk)
+max_sl_points_sp500   = input.float(30.0, "Max SL SP500 (points)",  group = g6_risk)
+max_sl_points_us30    = input.float(50.0, "Max SL US30 (points)",   group = g6_risk)
+max_sl_pct_btcusd     = input.float(0.8, "Max SL BTCUSD (% of price)", group = g6_risk)
+max_sl_pct_ethusd     = input.float(1.0, "Max SL ETHUSD (% of price)", group = g6_risk)
+
+max_daily_trades = input.int(4, "Max trades per day",
+     minval  = 1, maxval = 20,
+     group   = g6_risk,
+     tooltip = "Hard cap on daily trade count. Discipline first")
+
+max_daily_loss_pct = input.float(2.0, "Max daily loss % (halt)",
+     minval  = 0.5, maxval = 10.0, step = 0.25,
+     group   = g6_risk,
+     tooltip = "If equity drops N% in a day, halt all new entries until next day")
+
+max_total_dd_pct = input.float(5.0, "Max total drawdown % (halt)",
+     minval  = 1.0, maxval = 20.0, step = 0.5,
+     group   = g6_risk,
+     tooltip = "If total DD from peak reaches N%, halt all entries until manual reset")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 7 — 🚫 FILTRES
+// ═══════════════════════════════════════════════════════════════════════════
+g7_filt = "🚫 Filtres"
+
+filter_news = input.bool(true, "Filter news (red events)",
+     group   = g7_filt,
+     tooltip = "Block trades around NFP, FOMC, CPI, PPI, red events")
+
+news_buffer_before_min = input.int(30, "Block N min BEFORE news",
+     minval  = 0, maxval = 240,
+     group   = g7_filt)
+
+news_buffer_after_min = input.int(30, "Block N min AFTER news",
+     minval  = 0, maxval = 240,
+     group   = g7_filt)
+
+filter_kz_strict = input.bool(true, "Strict KZ only (no trades outside)",
+     group   = g7_filt,
+     tooltip = "If true, no entries outside configured killzones")
+
+filter_ny_lunch = input.bool(true, "Block NY Lunch (12-13 NY)",
+     group   = g7_filt,
+     tooltip = "Low-volume period, avoid per spec")
+
+filter_smt_mandatory = input.bool(false, "SMT Divergence MANDATORY for reversal",
+     group   = g7_filt,
+     tooltip = "If true, reversal setups require SMT confirmation (vs optional per spec § 4.3)")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 8 — 🎨 AFFICHAGE
+// ═══════════════════════════════════════════════════════════════════════════
+g8_ui = "🎨 Affichage"
+
+col_bull       = input.color(color.new(#00E676, 0),  "Bullish color",      group = g8_ui)
+col_bear       = input.color(color.new(#FF1744, 0),  "Bearish color",      group = g8_ui)
+col_neutral    = input.color(color.new(#FFC107, 0),  "Neutral color",      group = g8_ui)
+col_premium    = input.color(color.new(#FF6B6B, 85), "Premium zone",       group = g8_ui)
+col_discount   = input.color(color.new(#4CAF50, 85), "Discount zone",      group = g8_ui)
+col_equilibrium= input.color(color.new(#9E9E9E, 90), "Equilibrium zone",   group = g8_ui)
+col_kz_london  = input.color(color.new(#2196F3, 92), "London KZ bg",       group = g8_ui)
+col_kz_ny_am   = input.color(color.new(#FF9800, 92), "NY AM KZ bg",        group = g8_ui)
+col_kz_ny_pm   = input.color(color.new(#E91E63, 92), "NY PM KZ bg",        group = g8_ui)
+col_kz_asia    = input.color(color.new(#9C27B0, 92), "Asia KZ bg",         group = g8_ui)
+
+show_labels    = input.bool(true, "Show text labels on chart",  group = g8_ui)
+show_dashboard = input.bool(true, "Show HUD dashboard",         group = g8_ui)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP 9 — 🔔 ALERTES
+// ═══════════════════════════════════════════════════════════════════════════
+g9_alert = "🔔 Alertes"
+
+alert_mode = input.string("off", "Alert mode",
+     options = ["off", "simple", "json"],
+     group   = g9_alert,
+     tooltip = "off : no alerts (Phase A backtest only) · simple : basic text · json : webhook-ready payload for FTMO/OANDA bridge")
+
+webhook_url_hint = input.string("", "Webhook URL (reminder only)",
+     group   = g9_alert,
+     tooltip = "This field does NOT send alerts. Paste your webhook URL in TradingView's alert dialog. This is just a memo")
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   PHASE A.2+ PLACEHOLDERS (no logic yet — will be filled per roadmap)    ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2] ICT CORE DETECTIONS  (PO3, Opens, FVG, OB, BB, IFVG, BPR)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// To be implemented :
+//   f_po3_daily()                → [phase, direction]
+//   f_po3_weekly(open_mode)      → [phase, direction]
+//   f_midnight_open()            → float
+//   f_weekly_open(open_mode)     → float
+//   f_true_day_open()            → float
+//   f_detect_fvg_bull()          → bool
+//   f_detect_fvg_bear()          → bool
+//   f_detect_ifvg(mitigated_fvg) → bool
+//   f_detect_bpr()               → bool
+//   f_detect_ob(swept, fvg_ok, bos_ok) → bool
+//   f_detect_bb(broken_ob)       → bool
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2] ICT STRUCTURE  (BOS, CHoCH, CISD, MSS)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// To be implemented :
+//   f_bos(body_close)            → [broken, direction]
+//   f_choch()                    → [detected, direction]
+//   f_cisd()                     → [detected, direction]
+//   f_mss() → alias for choch
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.2] ICT LIQUIDITY  (PDH/PDL, PWH/PWL, PMH/PML, EQH/EQL, KZ H/L)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// To be implemented :
+//   f_pdh_pdl()                  → [float, float]
+//   f_pwh_pwl()                  → [float, float]
+//   f_pmh_pml()                  → [float, float]
+//   f_kz_prev_hl(session)        → [float, float]
+//   f_eqh_eql(tolerance)         → [array<float>, array<float>]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.3] BIAIS DAILY + WEEKLY ENGINE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// To be implemented :
+//   f_bias_weekly() → "bull" | "bear" | "neutral"
+//   f_bias_daily()  → "bull" | "bear" | "neutral"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.4] CONTINUATION SETUP
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Conditions HTF :
+//   - bias_daily aligned with bias_weekly
+//   - price in valid PD array (OB + FVG in correct zone : Discount if bull / Premium if bear)
+//   - price above/below Daily Open per bias
+//
+// Conditions LTF (in active KZ) :
+//   - sweep internal or minor liquidity
+//   - CISD : BB + IFVG in bias direction
+//   - entry on retest of BB or 50% FVG
+//
+// Entry : limit 50% FVG or retest BB
+// SL    : beyond sweep + sl_buffer_pips
+// TP    : next external liquidity (PDH/PDL/PWH/PWL). If RR < rr_target_1 → skip
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.5] REVERSAL SETUP
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Conditions HTF :
+//   - external time-based liquidity swept (PDH/PWH/EQH/etc)
+//   - BB + IFVG formation invalidating prior structure
+//   - SMT divergence (optional but recommended, mandatory if filter on)
+//
+// Conditions LTF :
+//   - internal sweep
+//   - CISD : OB + FVG in new direction
+//   - entry on retest
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.6] FILTERS
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// - KZ filter : block entries outside configured killzones
+// - News filter : CSV-based static table (A.6) + webhook dynamic (B.2)
+// - SMT / DXY correlation filter
+// - Max daily trades / daily loss / total DD halt logic
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.7] RISK MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// - Position sizing : risk_pct × equity / (sl_distance × pointvalue)
+// - SL max clamp per instrument (EURUSD 20p, XAUUSD 300p, etc.)
+// - TP1 / TP2 / BE / trailing
+// - Halt triggers : max_daily_loss_pct, max_total_dd_pct
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [A.8] PERFORMANCE REPORT
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// - Trade log export (CSV)
+// - WR, PF, Expectancy, Sharpe, Sortino
+// - Distribution of R
+// - Performance per KZ, per setup type, per weekday, per month
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [B.1] INDICATOR CONVERSION
+// [B.2] WEBHOOK JSON ALERTS
+// [B.3] CHART UI
+// [B.4] USER_GUIDE.md
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   PHASE A.1 VALIDATION — minimal compile check                           ║
+// ║   (This block exists ONLY so the strategy compiles. Removed in A.4+)     ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// Touch all boolean inputs (single long line — Pine v6 handles long lines fine)
+_bool_touch = use_po3_daily or use_po3_weekly or bos_body_close or require_alignment or show_pdh_pdl or show_pwh_pwl or show_pmh_pml or show_kz_hl or show_fvg or show_ifvg or show_bpr or show_ob or show_bb or ob_require_3_conditions or show_kz_bg or enable_smt or require_dxy_confirmation or breakeven_on_tp1 or filter_news or filter_kz_strict or filter_ny_lunch or filter_smt_mandatory or show_labels or show_dashboard
+
+// Touch all numeric inputs
+_num_touch = eq_tolerance_pips + relative_eq_tolerance_pips + fvg_age_max + smt_lookback + risk_pct + rr_target_1 + rr_target_2 + partial_tp1_pct + sl_buffer_pips + max_sl_pips_eurusd + max_sl_pips_gbpusd + max_sl_pips_xauusd + max_sl_points_nas100 + max_sl_points_sp500 + max_sl_points_us30 + max_sl_pct_btcusd + max_sl_pct_ethusd + max_daily_trades + max_daily_loss_pct + max_total_dd_pct + news_buffer_before_min + news_buffer_after_min
+
+// Touch string / symbol inputs
+_str_touch = kz_timezone + kz_asia_session + kz_london_session + kz_ny_am_session + kz_ny_lunch_session + kz_ny_pm_session + weekly_open_mode + kz_mode + alert_mode + smt_symbol_override + webhook_url_hint
+
+// Touch color inputs
+_col_touch = color.new(col_bull, 0)
+_col_touch2 = color.new(col_bear, 0)
+_col_touch3 = color.new(col_neutral, 0)
+_col_touch4 = color.new(col_premium, 0)
+_col_touch5 = color.new(col_discount, 0)
+_col_touch6 = color.new(col_equilibrium, 0)
+_col_touch7 = color.new(col_kz_london, 0)
+_col_touch8 = color.new(col_kz_ny_am, 0)
+_col_touch9 = color.new(col_kz_ny_pm, 0)
+_col_touch10 = color.new(col_kz_asia, 0)
+
+// Show confirmation label on last confirmed historical bar
+var label _check_label = na
+if barstate.islastconfirmedhistory
+    label.delete(_check_label)
+    _check_label := label.new(
+         bar_index, high,
+         "🟢 A.1 SKELETON OK\n" + str.tostring(_num_touch, "#") + " inputs OK",
+         style     = label.style_label_down,
+         color     = color.new(color.green, 30),
+         textcolor = color.white,
+         size      = size.small)
+
+// End of A.1 skeleton ────────────────────────────────────────────────────────

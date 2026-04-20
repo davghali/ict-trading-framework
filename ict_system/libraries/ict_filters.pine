@@ -1,0 +1,71 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ict_filters — Entry filters library                                    ║
+// ║   News, Killzones, SMT divergence, DXY correlation                       ║
+// ║                                                                          ║
+// ║   Phase A.1 SKELETON — functions to be implemented in Phase A.6          ║
+// ║   Spec : PROMPT_ULTIME_ICT_TRADINGVIEW.md § 3.7, § 3.8, § 6              ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+library("ict_filters", overlay = false)
+
+// @function Return library version
+// @returns Version string
+export version() =>
+    "ict_filters v0.1 — Phase A.1 Skeleton"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TO IMPLEMENT IN PHASE A.6
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// § 3.7 Killzones filter
+// ───────────────────────
+// @function Check if current time is in a configured killzone
+// @param session_asia Asia session string
+// @param session_london London session string
+// @param session_ny_am NY AM session string
+// @param session_ny_pm NY PM session string
+// @param session_ny_lunch NY Lunch session (excluded)
+// @returns [bool in_kz, string kz_name]
+// export f_in_any_kz(simple string session_asia, simple string session_london,
+//                     simple string session_ny_am, simple string session_ny_pm,
+//                     simple string session_ny_lunch) => ...
+//
+//
+// § 3.8 SMT Divergence / Correlation
+// ───────────────────────────────────
+// @function Auto-detect correlated symbol based on current ticker
+// @returns string correlation symbol
+// export f_auto_smt_symbol() => ...
+//
+// @function Detect SMT divergence vs correlated pair
+// @param corr_symbol Correlated symbol to compare
+// @param lookback Bars to compare HH/LL
+// @returns [bool bull_div, bool bear_div]
+// export f_smt_divergence(simple string corr_symbol, simple int lookback) => ...
+//
+// @function DXY confirmation for forex trades
+// @param direction "bull" or "bear"
+// @returns bool confirmed
+// export f_dxy_confirms(simple string direction) => ...
+//
+//
+// § 6 Filters (news, max trades, DD)
+// ──────────────────────────────────
+// @function Check if current bar is within a red news blackout window
+// @param buffer_before_min Minutes before news to block
+// @param buffer_after_min Minutes after news to block
+// @returns bool in_news_window
+// export f_in_news_window(simple int buffer_before_min, simple int buffer_after_min) => ...
+//
+// @function Daily loss halt
+// @param max_daily_loss_pct Threshold %
+// @returns bool halt_triggered
+// export f_daily_loss_halt(simple float max_daily_loss_pct) => ...
+//
+// @function Total drawdown halt
+// @param max_total_dd_pct Threshold %
+// @returns bool halt_triggered
+// export f_total_dd_halt(simple float max_total_dd_pct) => ...

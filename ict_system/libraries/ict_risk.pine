@@ -1,0 +1,68 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║   ict_risk — Risk management library                                     ║
+// ║   Position sizing, SL clamps, TP targets, DD tracking                    ║
+// ║                                                                          ║
+// ║   Phase A.1 SKELETON — functions to be implemented in Phase A.7          ║
+// ║   Spec : PROMPT_ULTIME_ICT_TRADINGVIEW.md § 5                            ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+library("ict_risk", overlay = false)
+
+// @function Return library version
+// @returns Version string
+export version() =>
+    "ict_risk v0.1 — Phase A.1 Skeleton"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TO IMPLEMENT IN PHASE A.7
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// § 5 Risk Management
+// ────────────────────
+// @function Compute position size based on risk % and SL distance
+// @param risk_pct Risk percentage per trade
+// @param equity Current equity
+// @param sl_distance Distance to SL in price units
+// @returns float position size (lots / contracts)
+// export f_position_size(simple float risk_pct, float equity, float sl_distance) => ...
+//
+// @function Clamp SL to max allowed by instrument (per spec § 5)
+// @param raw_sl_distance Raw SL distance from structure
+// @param max_sl_eurusd_pips Cap for EURUSD
+// @param max_sl_xauusd_pips Cap for XAUUSD
+// @param ... other instruments
+// @returns [float clamped_sl_distance, bool was_clamped]
+// export f_clamp_sl_by_instrument(...) => ...
+//
+// @function Compute TP levels (TP1, TP2) based on entry, SL, RR
+// @param entry Entry price
+// @param sl Stop loss price
+// @param rr_1 RR target 1
+// @param rr_2 RR target 2
+// @param direction "bull" or "bear"
+// @returns [float tp1, float tp2]
+// export f_compute_tps(float entry, float sl, simple float rr_1, simple float rr_2,
+//                       simple string direction) => ...
+//
+// @function Check if RR to next liquidity target is >= minimum
+// @param entry Entry price
+// @param sl SL price
+// @param target Liquidity target price
+// @param min_rr Minimum RR required
+// @returns bool valid_rr
+// export f_rr_valid(float entry, float sl, float target, simple float min_rr) => ...
+//
+// @function Track daily P&L for halt logic
+// @returns [float day_pnl_pct, bool halt_day]
+// export f_daily_pnl() => ...
+//
+// @function Track total drawdown from peak
+// @returns [float dd_pct, bool halt_total]
+// export f_total_drawdown() => ...
+//
+// @function Count trades today
+// @returns int n_trades_today
+// export f_trades_today() => ...
