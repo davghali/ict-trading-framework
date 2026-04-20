@@ -37,10 +37,28 @@ SETTINGS = UserSettings.load()
 
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="ICT Framework",
+    page_title="ICT Cyborg",
     page_icon="🔴",
     layout="wide",
     initial_sidebar_state="expanded",
+)
+
+# ------------------------------------------------------------------
+# PWA / iOS App-Mode meta tags
+# Permet "Ajouter à l'écran d'accueil" iPhone + ouverture plein écran
+# ------------------------------------------------------------------
+st.markdown(
+    """
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ICT Cyborg">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#DC2626">
+    <meta name="application-name" content="ICT Cyborg">
+    <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230F172A'/><circle cx='90' cy='90' r='55' fill='%23DC2626'/><text x='90' y='105' font-size='60' text-anchor='middle' fill='white' font-family='Arial'>🎯</text></svg>">
+    <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230F172A'/><circle cx='90' cy='90' r='55' fill='%23DC2626'/></svg>">
+    """,
+    unsafe_allow_html=True,
 )
 
 # ------------------------------------------------------------------
@@ -111,6 +129,8 @@ with st.sidebar:
         "Navigation",
         [
             "🏠 ACCUEIL",
+            "🤖 AUTO-EXEC LIVE",
+            "💰 POSITIONS MT5",
             "📊 ANALYSE DU JOUR",
             "🎯 SIGNAUX",
             "📈 ESPÉRANCES",
@@ -122,10 +142,18 @@ with st.sidebar:
     )
 
     st.markdown("---")
+    # Live Paris time in sidebar
+    try:
+        from src.utils.tz_display import format_paris
+        st.caption(f"🕐 {format_paris(fmt='%d/%m %H:%M')} Paris")
+    except Exception:
+        from datetime import datetime
+        st.caption(f"🕐 {datetime.utcnow():%d/%m %H:%M} UTC")
     st.markdown(f"**{SETTINGS.firm.upper()}**")
     st.caption(f"{SETTINGS.variant}")
     st.caption(f"💰 ${SETTINGS.account_balance:,.0f}")
     st.caption(f"⚠️ Risk {SETTINGS.risk_per_trade_pct}%/trade")
+    st.caption(f"📡 {len(SETTINGS.assets_h1) + len(SETTINGS.assets_d1)} instruments")
 
 
 # ==================================================================
@@ -140,6 +168,13 @@ def get_latest_public_url():
 
 
 def tier_badge(tier: str) -> str:
+    """Badge with new grade system (S/A+/A/B) + legacy fallback."""
+    # New grade system (cyborg)
+    new_cls = {"S": "q-s", "A+": "q-aplus", "A": "q-a", "B": "q-b"}.get(tier)
+    new_label = {"S": "💎 S", "A+": "🎯 A+", "A": "⭐ A", "B": "✓ B"}.get(tier)
+    if new_cls:
+        return f'<span class="quality-badge {new_cls}">{new_label}</span>'
+    # Legacy tier system (backward compat)
     cls = {"ELITE": "q-elite", "BALANCED": "q-balanced", "VOLUME": "q-volume"}.get(tier, "q-volume")
     label = {"ELITE": "🎯 ELITE", "BALANCED": "⚖ BALANCED", "VOLUME": "🚀 VOLUME"}.get(tier, tier)
     return f'<span class="quality-badge {cls}">{label}</span>'
@@ -362,6 +397,191 @@ if page == "🏠 ACCUEIL":
         st.caption(f"Limite daily : -{rules['max_daily_loss_pct']}%")
         st.caption(f"Stop à : -{rules['safety']['daily_loss_hard_cap_pct']}% (auto)")
         st.caption(f"Trades/jour max : {rules['safety']['max_trades_per_day']}")
+
+
+# ==================================================================
+# 🤖 AUTO-EXEC LIVE
+# ==================================================================
+elif page == "🤖 AUTO-EXEC LIVE":
+    st.title("🤖 Auto-Executor LIVE")
+    st.caption("État en temps réel du bot Full Auto sur AWS")
+
+    try:
+        from src.utils.tz_display import format_paris
+        st.caption(f"🕐 Heure Paris : **{format_paris()}**")
+    except Exception:
+        pass
+
+    st.markdown("---")
+
+    # Load state from user_data/managed_positions_state.json if exists
+    import json as json_mod
+    from pathlib import Path as PathLib
+
+    state_file = PathLib("user_data") / "managed_positions_state.json"
+    consistency_file = PathLib("user_data") / "consistency_state.json"
+    mt5_watchdog_state = PathLib("user_data") / "mt5_watchdog_state.json"
+
+    col1, col2, col3 = st.columns(3)
+
+    # Auto-exec status
+    with col1:
+        st.markdown("### 🤖 Auto-Executor")
+        st.success("✅ FULL AUTO actif")
+        st.caption("Bot Python sur AWS Windows")
+        st.caption("Scan toutes les 15 min")
+        st.caption("Lundi-Vendredi UTC")
+
+    # Positions count
+    with col2:
+        st.markdown("### 💰 Positions Managed")
+        positions_count = 0
+        if state_file.exists():
+            try:
+                data = json_mod.loads(state_file.read_text())
+                positions_count = len(data)
+            except Exception:
+                pass
+        st.metric("Positions actives", f"{positions_count}/5")
+        st.caption("Max 5 concurrentes")
+        st.caption("Max 1 par symbole")
+
+    # MT5 Watchdog
+    with col3:
+        st.markdown("### 🛡️ MT5 Watchdog")
+        if mt5_watchdog_state.exists():
+            try:
+                w = json_mod.loads(mt5_watchdog_state.read_text())
+                state = w.get("state", "UNKNOWN")
+                if state == "OK":
+                    st.success(f"✅ {state}")
+                else:
+                    st.warning(f"⚠️ {state}")
+                st.caption(f"Last check: {w.get('last_check', '?')[:19]}")
+            except Exception:
+                st.info("État non disponible")
+        else:
+            st.info("Pas encore de check")
+        st.caption("Check toutes les 10 min")
+
+    st.markdown("---")
+
+    # FTMO Consistency
+    st.markdown("### ⚖️ FTMO Consistency Rule (best day ≤ 45%)")
+    if consistency_file.exists():
+        try:
+            c = json_mod.loads(consistency_file.read_text())
+            daily = c.get("daily_pnl", {})
+            if daily:
+                import pandas as pd
+                df_c = pd.DataFrame([
+                    {"Jour": k, "PnL USD": f"{v:+.2f}"}
+                    for k, v in sorted(daily.items(), reverse=True)[:10]
+                ])
+                st.dataframe(df_c, hide_index=True, use_container_width=True)
+
+                positive = {k: v for k, v in daily.items() if v > 0}
+                if positive:
+                    total = sum(positive.values())
+                    best_day = max(positive, key=positive.get)
+                    best_pnl = positive[best_day]
+                    best_pct = (best_pnl / total * 100) if total > 0 else 0
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("Total positive PnL", f"+${total:.0f}")
+                    col_b.metric("Best day", f"+${best_pnl:.0f}")
+                    col_c.metric("Best day %", f"{best_pct:.1f}%",
+                                  delta=f"{45 - best_pct:.1f}% marge" if best_pct < 45 else "!! LIMITE")
+            else:
+                st.info("Aucun PnL enregistré encore")
+        except Exception as e:
+            st.warning(f"Parse state failed : {e}")
+    else:
+        st.info("Consistency tracker pas encore initialisé (normal)")
+
+    st.markdown("---")
+
+    # Safety net status
+    st.markdown("### 🛡️ Safety Net (Scheduled Tasks Windows)")
+    safety_data = [
+        ["ICTCyborg", "Daemon principal", "AtStartup + retries"],
+        ["ICTCyborgMT5Watchdog", "Keep MT5 connected", "Every 10 min"],
+        ["ICTCyborgNewsRefresh", "Update economic calendar", "Daily 02:00"],
+        ["ICTCyborgWeeklyReport", "Perf hebdo Telegram", "Sunday 20:00"],
+    ]
+    import pandas as pd
+    df_safety = pd.DataFrame(safety_data, columns=["Task", "Rôle", "Trigger"])
+    st.dataframe(df_safety, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.info(
+        "💡 **Pour contrôler le bot** : utilise les commandes Telegram directement\n\n"
+        "`/auto_status` `/pause` `/resume` `/positions` `/close_all`"
+    )
+
+
+# ==================================================================
+# 💰 POSITIONS MT5
+# ==================================================================
+elif page == "💰 POSITIONS MT5":
+    st.title("💰 Positions MT5 Live")
+    st.caption("Positions ouvertes et gérées par le PositionManager")
+
+    try:
+        from src.utils.tz_display import format_paris
+        st.caption(f"🕐 Heure Paris : **{format_paris()}**")
+    except Exception:
+        pass
+
+    import json as json_mod
+    from pathlib import Path as PathLib
+
+    state_file = PathLib("user_data") / "managed_positions_state.json"
+
+    if not state_file.exists():
+        st.info("📭 Aucune position managée actuellement")
+        st.caption("Les positions apparaîtront ici dès qu'un signal A+ sera exécuté.")
+    else:
+        try:
+            data = json_mod.loads(state_file.read_text())
+            if not data:
+                st.info("📭 Aucune position managée actuellement")
+            else:
+                st.success(f"✅ {len(data)} position(s) managée(s)")
+
+                for ticket, pos in data.items():
+                    with st.expander(
+                        f"🎯 {pos['symbol']} {pos['side'].upper()} — ticket {ticket}",
+                        expanded=True,
+                    ):
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Entry", f"{pos['entry']:.5f}")
+                        col2.metric("SL", f"{pos['sl_current']:.5f}")
+                        col3.metric("TP", f"{pos['tp']:.5f}")
+                        col4.metric("Lots", f"{pos['lots_current']}/{pos['lots_original']}")
+
+                        # Exit levels progress
+                        st.markdown("**Exit levels progress**")
+                        levels = pos.get("exit_plan", {}).get("levels", [])
+                        for lvl in levels:
+                            icon = "✅" if lvl["triggered"] else "⏳"
+                            st.caption(
+                                f"{icon} {lvl['at_r']}R → close {lvl['close_pct']*100:.0f}% "
+                                f"→ SL to {lvl['move_sl_to']}"
+                            )
+
+                        if pos.get("exit_plan", {}).get("runner_started"):
+                            st.success("🚀 Runner en cours (trailing ATR x2)")
+        except Exception as e:
+            st.error(f"Parse failed : {e}")
+
+    st.markdown("---")
+    st.info(
+        "💡 Actions d'urgence via Telegram :\n\n"
+        "`/close_all` — Ferme TOUT + pause auto-exec\n"
+        "`/pause` — Stop nouveaux trades\n"
+        "`/positions` — Liste via bot"
+    )
+
 
 # ==================================================================
 # 🎯 SIGNAUX
