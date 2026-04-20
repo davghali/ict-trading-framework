@@ -475,8 +475,6 @@ def run():
                             continue
                     setattr(enh, "dynamic_risk_pct", risk_pct)
 
-                    # Send Telegram alert
-                    bot.send_signal_with_buttons(sig, enhanced=enh)
                     new_count += 1
 
                     # Consistency guard (FTMO)
@@ -484,9 +482,15 @@ def run():
                         c_status = consistency.get_status()
                         if not c_status.allowed:
                             log.warning(f"[CONSISTENCY BLOCK] {sig.symbol}: {c_status.reason}")
+                            # Info only (no button since full auto blocked)
+                            bot.send_text(
+                                f"🚫 *SIGNAL {enh.cyborg_grade} BLOQUE*\n"
+                                f"{sig.symbol} {sig.side.upper()}\n"
+                                f"Raison: {c_status.reason}"
+                            )
                             continue
 
-                    # AUTO-EXECUTION
+                    # AUTO-EXECUTION (FULL AUTO - pas de boutons, exec direct)
                     if auto_exec is not None:
                         signal_dict = {
                             "symbol": sig.symbol,
@@ -517,21 +521,36 @@ def run():
                                     lots=exec_result.lots,
                                     atr=getattr(enh, "_atr", 0),
                                 )
-                            # Telegram confirmation
+                            # Telegram confirmation complete with grade + confluence
+                            conf = getattr(enh, "confluence_score", "-")
                             bot.send_text(
-                                f"✅ *AUTO-EXEC FILLED*\n"
+                                f"✅ *AUTO-EXEC FILLED* - Grade {enh.cyborg_grade}\n"
                                 f"{sig.symbol} {sig.side.upper()} "
-                                f"{exec_result.lots}lot\n"
-                                f"Entry: {exec_result.entry:.5f}\n"
-                                f"SL: {exec_result.sl:.5f}\n"
-                                f"TP: {exec_result.tp:.5f}\n"
-                                f"Ticket: {exec_result.ticket}"
+                                f"{exec_result.lots}lot\n\n"
+                                f"Entry : {exec_result.entry:.5f}\n"
+                                f"SL : {exec_result.sl:.5f}\n"
+                                f"TP : {exec_result.tp:.5f}\n"
+                                f"Risk : {risk_pct:.2f}%\n"
+                                f"Confluence : {conf}/7\n"
+                                f"Killzone : {getattr(sig, 'killzone', '-')}\n\n"
+                                f"Ticket MT5 : {exec_result.ticket}\n"
+                                f"Le PositionManager gere les exits auto."
                             )
                         else:
-                            log.warning(
-                                f"[AUTO-EXEC SKIP] {sig.symbol}: "
-                                f"{exec_result.skipped_reason or exec_result.message}"
+                            # Exec skipped or failed - info
+                            reason = exec_result.skipped_reason or exec_result.message
+                            bot.send_text(
+                                f"⏭ *SIGNAL {enh.cyborg_grade} SKIP*\n"
+                                f"{sig.symbol} {sig.side.upper()}\n"
+                                f"Raison: {reason}"
                             )
+                    else:
+                        # Fallback si auto_exec indispo (signal-only)
+                        bot.send_text(
+                            f"🔔 *SIGNAL {enh.cyborg_grade}* (signal-only)\n"
+                            f"{sig.symbol} {sig.side.upper()}\n"
+                            f"Entry: {sig.entry:.5f} | SL: {sig.stop_loss:.5f}"
+                        )
 
                     log.info(
                         f"[SENT] {enh.cyborg_grade}: {sig.symbol} {sig.ltf} "
