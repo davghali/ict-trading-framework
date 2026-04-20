@@ -89,13 +89,19 @@ class UserSettings:
 
     @classmethod
     def load(cls) -> "UserSettings":
-        """Charge depuis settings.json + .env."""
+        """Charge depuis settings.json + .env. BOM-tolerant."""
         data = {}
         if SETTINGS_FILE.exists():
             try:
-                data = json.loads(SETTINGS_FILE.read_text())
-            except Exception:
-                pass
+                # Handle BOM (Windows PowerShell writes UTF-8 with BOM by default)
+                raw = SETTINGS_FILE.read_text(encoding="utf-8-sig")
+                data = json.loads(raw)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"settings.json parse failed ({e}) — using defaults"
+                )
+                data = {}
         # Read secrets from .env
         if ENV_FILE.exists():
             for line in ENV_FILE.read_text().splitlines():
