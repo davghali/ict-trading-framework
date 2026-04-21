@@ -1,37 +1,24 @@
 // @version=6
 // ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ICT STRATEGY v1 — CLEAN REBUILD                                         ║
+// ║  David Ghali x Claude — 2026-04-21                                       ║
 // ║                                                                          ║
-// ║   ICT STRATEGY v1 — PROMPT_ULTIME COMPLIANT                              ║
-// ║   Phase A.1 — Skeleton + Inputs (no trading logic yet)                   ║
+// ║  Approach : uses plot() for levels (guaranteed Pine v6 visibility).      ║
+// ║  No more label.new spam for right-edge — Pine's native plot labels work. ║
 // ║                                                                          ║
-// ║   Author  : David Ghali x Claude                                         ║
-// ║   Created : 2026-04-21                                                   ║
-// ║   Spec    : PROMPT_ULTIME_ICT_TRADINGVIEW.md                             ║
-// ║                                                                          ║
-// ║   PHASE ROADMAP :                                                        ║
-// ║     A.1   Skeleton + Inputs                       ✅ DONE                 ║
-// ║     A.2.a Opens + KZ viz + Swings + PO3           ✅ DONE                 ║
-// ║     A.2.b PD Arrays (FVG/IFVG/OB/BB) + pastels   ✅ DONE                  ║
-// ║     A.2.c Structure (BOS/CHoCH/CISD/MSS)          ✅ DONE ← YOU ARE HERE  ║
-// ║     A.2.d-early PDH/PDL/PWH/PWL/PMH/PML           ✅ DONE                 ║
-// ║     A.2.d-rest  EQH/EQL + Previous KZ H/L         🔜 NEXT                 ║
-// ║     A.2.e P/D/E zones + OTE                                               ║
-// ║     A.3  Daily / Weekly bias engine                                      ║
-// ║     A.4  Continuation setup logic                                        ║
-// ║     A.5  Reversal setup logic                                            ║
-// ║     A.6  Filters (KZ, news, SMT, DXY)                                    ║
-// ║     A.7  Risk management (sizing, SL/TP, DD)                             ║
-// ║     A.8  Performance report                                              ║
-// ║     A.9  Walk-forward validation                                         ║
-// ║     B.*  Indicator conversion + webhook alerts                           ║
-// ║                                                                          ║
-// ║   RULES (from PROMPT_ULTIME § 13) :                                      ║
-// ║     1. Code modulaire, each ICT concept in its own function              ║
-// ║     2. No repainting : barstate.isconfirmed + lookahead_off              ║
-// ║     3. Pas de magic numbers : tout via input.*                           ║
-// ║     4. snake_case for vars, f_ prefix for functions, SC_ for constants   ║
-// ║     5. Section headers : // ═══ SECTION ═══                              ║
-// ║                                                                          ║
+// ║  FEATURES :                                                              ║
+// ║    • Midnight NY Open (amber line)                                       ║
+// ║    • Weekly Open (green line)                                            ║
+// ║    • PDH / PDL (indigo)                                                  ║
+// ║    • PWH / PWL (cyan)                                                    ║
+// ║    • PMH / PML (green)                                                   ║
+// ║    • FVG bull/bear (pastel boxes)                                        ║
+// ║    • OB bull/bear (pastel boxes)                                         ║
+// ║    • BOS / CHoCH detection                                               ║
+// ║    • Killzones (optional backgrounds)                                    ║
+// ║    • PO3 prev day/week bias                                              ║
+// ║    • HUD table (top-right)                                               ║
+// ║    • FTMO-ready strategy params                                          ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 strategy(
@@ -45,1236 +32,348 @@ strategy(
      commission_value        = 0.01,
      slippage                = 2,
      pyramiding              = 0,
-     calc_on_every_tick      = false,
      process_orders_on_close = true,
-     margin_long             = 100,
-     margin_short            = 100,
      max_boxes_count         = 500,
      max_lines_count         = 500,
      max_labels_count        = 500,
-     max_bars_back           = 1000,
-     use_bar_magnifier       = false
+     max_bars_back           = 500
  )
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║                                                                          ║
-// ║   INPUT GROUPS (9 groups as per PROMPT_ULTIME § 8)                       ║
-// ║                                                                          ║
+// ║   INPUTS                                                                 ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 1 — 🎯 BIAIS & STRUCTURE
-// ═══════════════════════════════════════════════════════════════════════════
-g1_bias = "🎯 Biais & Structure"
+g_levels  = "📊 Levels"
+show_pdh_pdl = input.bool(true,  "PDH / PDL",  group = g_levels)
+show_pwh_pwl = input.bool(true,  "PWH / PWL",  group = g_levels)
+show_pmh_pml = input.bool(true,  "PMH / PML",  group = g_levels)
+show_mid_op  = input.bool(true,  "Midnight Open (00:00 NY)", group = g_levels)
+show_wk_op   = input.bool(true,  "Weekly Open", group = g_levels)
 
-use_po3_daily  = input.bool(true, "PO3 Daily bias",
-     group   = g1_bias,
-     tooltip = "Compute Power of Three phase (Accum / Manip / Distrib) on daily candles")
+g_pd      = "📦 PD Arrays"
+show_fvg  = input.bool(true,  "FVG (Fair Value Gap)", group = g_pd)
+show_ob   = input.bool(true,  "OB (Order Block)",     group = g_pd)
+fvg_ext   = input.int(15,     "Box extension (bars)", minval = 5, maxval = 100, group = g_pd)
+fvg_age   = input.int(50,     "Max age (bars)",       minval = 10, maxval = 500, group = g_pd)
 
-use_po3_weekly = input.bool(true, "PO3 Weekly bias",
-     group   = g1_bias,
-     tooltip = "Compute PO3 on weekly candles — used for HTF directional bias")
+g_struct  = "🏗️ Structure"
+show_bos  = input.bool(true,  "BOS / CHoCH",          group = g_struct)
+swing_len = input.int(10,     "Swing lookback",       minval = 3, maxval = 50, group = g_struct)
 
-weekly_open_mode = input.string("Sunday 17:00 NY", "Weekly Open reference",
-     options = ["Sunday 17:00 NY", "Monday 00:00 NY"],
-     group   = g1_bias,
-     tooltip = "Sunday 17:00 = futures session open · Monday 00:00 = forex cash open")
+g_kz      = "⏰ Killzones"
+show_kz   = input.bool(false, "Highlight Killzones (intraday only)", group = g_kz)
+kz_tz     = input.string("America/New_York", "Timezone", group = g_kz)
+sess_asia   = input.session("2000-0000", "Asia KZ",   group = g_kz)
+sess_london = input.session("0200-0500", "London KZ", group = g_kz)
+sess_ny_am  = input.session("0930-1100", "NY AM KZ",  group = g_kz)
+sess_ny_pm  = input.session("1330-1600", "NY PM KZ",  group = g_kz)
 
-bos_body_close = input.bool(true, "BOS requires BODY close",
-     group   = g1_bias,
-     tooltip = "If true, only a candle BODY closing beyond last swing counts as BOS. Wicks don't count")
+g_hud     = "📟 HUD"
+show_hud  = input.bool(true,  "Show HUD table",        group = g_hud)
+hud_pos   = input.string("top_right", "HUD position",
+     options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"],
+     group = g_hud)
 
-require_alignment = input.bool(true, "Require Daily + Weekly bias aligned",
-     group   = g1_bias,
-     tooltip = "If W and D bias conflict, no trades taken. Set false to allow D-only setups")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 2 — 💧 LIQUIDITÉS (external time-based)
-// ═══════════════════════════════════════════════════════════════════════════
-g2_liq = "💧 Liquidités (external)"
-
-show_pdh_pdl = input.bool(true, "PDH / PDL (Previous Day High/Low)",
-     group   = g2_liq,
-     tooltip = "Key intraday liquidity levels. Price often sweeps these")
-
-show_pwh_pwl = input.bool(true, "PWH / PWL (Previous Week High/Low)",
-     group   = g2_liq)
-
-show_pmh_pml = input.bool(true, "PMH / PML (Previous Month High/Low)",
-     group   = g2_liq)
-
-show_kz_hl = input.bool(true, "Previous KZ High/Low (Asia/London/NY)",
-     group   = g2_liq,
-     tooltip = "Tracks high/low of each previous killzone — liquidity targets for next session")
-
-eq_tolerance_pips = input.float(2.0, "EQH/EQL tolerance (pips, EURUSD ref)",
-     minval  = 0.5, maxval = 20.0, step = 0.5,
-     group   = g2_liq,
-     tooltip = "Two wicks within N pips = Equal Highs/Lows. Default 2 pips on EURUSD. Adapts per instrument")
-
-relative_eq_tolerance_pips = input.float(5.0, "Relative EQH/EQL tolerance (pips)",
-     minval  = 2.0, maxval = 50.0, step = 0.5,
-     group   = g2_liq,
-     tooltip = "Wider tolerance for 'relative equal highs/lows' where institutions target slightly unequal levels")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 3 — 📦 PD ARRAYS (internal liquidity)
-// ═══════════════════════════════════════════════════════════════════════════
-g3_pd = "📦 PD Arrays (internal)"
-
-show_fvg = input.bool(true, "FVG (Fair Value Gap)",
-     group   = g3_pd,
-     tooltip = "3-candle imbalance. Bull FVG : low[0] > high[2]. Bear FVG : high[0] < low[2]")
-
-show_ifvg = input.bool(true, "IFVG (Inverted FVG)",
-     group   = g3_pd,
-     tooltip = "An FVG that has been closed through — becomes inverted support/resistance")
-
-show_bpr = input.bool(true, "BPR (Balanced Price Range)",
-     group   = g3_pd,
-     tooltip = "Overlap of a bullish + bearish FVG. High-reactivity zone")
-
-show_ob = input.bool(true, "OB (Order Block)",
-     group   = g3_pd,
-     tooltip = "Last opposite candle before impulsive move. Must satisfy 3 conditions if strict mode")
-
-show_bb = input.bool(true, "BB (Breaker Block)",
-     group   = g3_pd,
-     tooltip = "An invalidated OB that now acts as opposite-direction support/resistance after CHoCH")
-
-fvg_age_max = input.int(50, "FVG max age (bars)",
-     minval  = 5, maxval = 500,
-     group   = g3_pd,
-     tooltip = "After N bars, old FVG is considered expired and no longer tradable")
-
-ob_require_3_conditions = input.bool(true, "OB strict : sweep + FVG + BOS required",
-     group   = g3_pd,
-     tooltip = "STRICT ICT definition : last opposite candle before move that (a) took liquidity, (b) delivered FVG, (c) created BOS. All 3 required")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 4 — ⏰ KILLZONES (New York time)
-// ═══════════════════════════════════════════════════════════════════════════
-g4_kz = "⏰ Killzones (NY time)"
-
-kz_timezone = input.string("America/New_York", "Timezone reference",
-     group   = g4_kz,
-     tooltip = "All KZ hours are expressed in this timezone")
-
-kz_asia_session    = input.session("2000-0000", "Asia KZ",
-     group = g4_kz, tooltip = "Default : 20:00 - 00:00 NY (accumulation phase)")
-
-kz_london_session  = input.session("0200-0500", "London KZ",
-     group = g4_kz, tooltip = "Default : 02:00 - 05:00 NY (manipulation / distribution)")
-
-kz_ny_am_session   = input.session("0930-1100", "NY AM KZ",
-     group = g4_kz, tooltip = "Default : 09:30 - 11:00 NY (main distribution)")
-
-kz_ny_lunch_session = input.session("1200-1300", "NY Lunch (NO TRADE)",
-     group = g4_kz, tooltip = "Default : 12:00 - 13:00 NY. Low-volume chop. NO entries allowed")
-
-kz_ny_pm_session   = input.session("1330-1600", "NY PM KZ",
-     group = g4_kz, tooltip = "Default : 13:30 - 16:00 NY (reversal of AM or continuation)")
-
-show_kz_bg = input.bool(false, "Highlight Killzones (background)",
-     group   = g4_kz,
-     tooltip = "Background color tint during each killzone. Off by default to keep chart clean")
-
-kz_mode = input.string("auto", "KZ behavior mode",
-     options = ["auto", "continuation", "reversal", "both"],
-     group   = g4_kz,
-     tooltip = "auto : decides based on Asian range sweep context · continuation : only trend trades · reversal : only mean-reversion · both : enable both setup types")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 5 — 🔁 CORRÉLATION / SMT
-// ═══════════════════════════════════════════════════════════════════════════
-g5_smt = "🔁 Corrélation / SMT"
-
-enable_smt = input.bool(true, "Enable SMT Divergence",
-     group   = g5_smt,
-     tooltip = "Smart Money Technique : if this pair makes new high/low but correlated pair doesn't → divergence signal")
-
-smt_symbol_override = input.symbol("", "Override correlation symbol (blank = auto)",
-     group   = g5_smt,
-     tooltip = "Auto-detect: EURUSD↔DXY · XAUUSD↔XAGUSD · NAS100↔SP500 · BTCUSD↔ETHUSD")
-
-require_dxy_confirmation = input.bool(true, "Require DXY confirmation (forex only)",
-     group   = g5_smt,
-     tooltip = "For EURUSD/GBPUSD : trade blocked if DXY doesn't move inversely in coherent manner")
-
-smt_lookback = input.int(20, "SMT lookback (bars)",
-     minval  = 5, maxval = 200,
-     group   = g5_smt,
-     tooltip = "How far back to compare highs/lows between main and correlated symbol")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 6 — 🛡️ RISK MANAGEMENT
-// ═══════════════════════════════════════════════════════════════════════════
-g6_risk = "🛡️ Risk Management"
-
-risk_pct = input.float(0.5, "Risk % per trade",
-     minval  = 0.1, maxval = 5.0, step = 0.1,
-     group   = g6_risk,
-     tooltip = "% of equity risked per trade. 0.5% is the spec standard. Max 2% for FTMO safety")
-
-rr_target_1 = input.float(2.0, "RR Target 1 (TP1)",
-     minval  = 1.0, maxval = 10.0, step = 0.1,
-     group   = g6_risk,
-     tooltip = "First take-profit in R-multiples. Default 2R per spec")
-
-rr_target_2 = input.float(3.0, "RR Target 2 (TP2)",
-     minval  = 1.5, maxval = 20.0, step = 0.1,
-     group   = g6_risk,
-     tooltip = "Second take-profit. Default 3R per spec")
-
-partial_tp1_pct = input.float(50.0, "% closed at TP1",
-     minval  = 0, maxval = 100, step = 5,
-     group   = g6_risk,
-     tooltip = "% of position closed when TP1 hits. Remaining runs to TP2 (or BE if enabled)")
-
-breakeven_on_tp1 = input.bool(true, "Move SL to BE after TP1",
-     group   = g6_risk,
-     tooltip = "Once TP1 fills, remaining position gets SL moved to entry (breakeven)")
-
-sl_buffer_pips = input.float(2.0, "SL buffer beyond sweep (pips)",
-     minval  = 0, maxval = 10, step = 0.5,
-     group   = g6_risk,
-     tooltip = "Extra buffer added to SL beyond the sweep high/low")
-
-// SL MAX by instrument (per spec § 5)
-max_sl_pips_eurusd    = input.float(20.0, "Max SL EURUSD (pips)",   group = g6_risk)
-max_sl_pips_gbpusd    = input.float(20.0, "Max SL GBPUSD (pips)",   group = g6_risk)
-max_sl_pips_xauusd    = input.float(300.0, "Max SL XAUUSD (pips = $3)", group = g6_risk)
-max_sl_points_nas100  = input.float(30.0, "Max SL NAS100 (points)", group = g6_risk)
-max_sl_points_sp500   = input.float(30.0, "Max SL SP500 (points)",  group = g6_risk)
-max_sl_points_us30    = input.float(50.0, "Max SL US30 (points)",   group = g6_risk)
-max_sl_pct_btcusd     = input.float(0.8, "Max SL BTCUSD (% of price)", group = g6_risk)
-max_sl_pct_ethusd     = input.float(1.0, "Max SL ETHUSD (% of price)", group = g6_risk)
-
-max_daily_trades = input.int(4, "Max trades per day",
-     minval  = 1, maxval = 20,
-     group   = g6_risk,
-     tooltip = "Hard cap on daily trade count. Discipline first")
-
-max_daily_loss_pct = input.float(2.0, "Max daily loss % (halt)",
-     minval  = 0.5, maxval = 10.0, step = 0.25,
-     group   = g6_risk,
-     tooltip = "If equity drops N% in a day, halt all new entries until next day")
-
-max_total_dd_pct = input.float(5.0, "Max total drawdown % (halt)",
-     minval  = 1.0, maxval = 20.0, step = 0.5,
-     group   = g6_risk,
-     tooltip = "If total DD from peak reaches N%, halt all entries until manual reset")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 7 — 🚫 FILTRES
-// ═══════════════════════════════════════════════════════════════════════════
-g7_filt = "🚫 Filtres"
-
-filter_news = input.bool(true, "Filter news (red events)",
-     group   = g7_filt,
-     tooltip = "Block trades around NFP, FOMC, CPI, PPI, red events")
-
-news_buffer_before_min = input.int(30, "Block N min BEFORE news",
-     minval  = 0, maxval = 240,
-     group   = g7_filt)
-
-news_buffer_after_min = input.int(30, "Block N min AFTER news",
-     minval  = 0, maxval = 240,
-     group   = g7_filt)
-
-filter_kz_strict = input.bool(true, "Strict KZ only (no trades outside)",
-     group   = g7_filt,
-     tooltip = "If true, no entries outside configured killzones")
-
-filter_ny_lunch = input.bool(true, "Block NY Lunch (12-13 NY)",
-     group   = g7_filt,
-     tooltip = "Low-volume period, avoid per spec")
-
-filter_smt_mandatory = input.bool(false, "SMT Divergence MANDATORY for reversal",
-     group   = g7_filt,
-     tooltip = "If true, reversal setups require SMT confirmation (vs optional per spec § 4.3)")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 8 — 🎨 AFFICHAGE
-// ═══════════════════════════════════════════════════════════════════════════
-g8_ui = "🎨 Affichage"
-
-col_bull       = input.color(color.new(#00E676, 0),  "Bullish color",      group = g8_ui)
-col_bear       = input.color(color.new(#FF1744, 0),  "Bearish color",      group = g8_ui)
-col_neutral    = input.color(color.new(#FFC107, 0),  "Neutral color",      group = g8_ui)
-col_premium    = input.color(color.new(#FF6B6B, 85), "Premium zone",       group = g8_ui)
-col_discount   = input.color(color.new(#4CAF50, 85), "Discount zone",      group = g8_ui)
-col_equilibrium= input.color(color.new(#9E9E9E, 90), "Equilibrium zone",   group = g8_ui)
-col_kz_london  = input.color(color.new(#2196F3, 92), "London KZ bg",       group = g8_ui)
-col_kz_ny_am   = input.color(color.new(#FF9800, 92), "NY AM KZ bg",        group = g8_ui)
-col_kz_ny_pm   = input.color(color.new(#E91E63, 92), "NY PM KZ bg",        group = g8_ui)
-col_kz_asia    = input.color(color.new(#9C27B0, 92), "Asia KZ bg",         group = g8_ui)
-
-show_labels    = input.bool(false, "Show swing + structure markers",  group = g8_ui,
-     tooltip = "Tiny triangle markers on swing H/L + BOS/CHoCH/CISD labels. Off for cleanest view")
-show_dashboard = input.bool(true, "Show HUD dashboard",         group = g8_ui)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GROUP 9 — 🔔 ALERTES
-// ═══════════════════════════════════════════════════════════════════════════
-g9_alert = "🔔 Alertes"
-
-alert_mode = input.string("off", "Alert mode",
-     options = ["off", "simple", "json"],
-     group   = g9_alert,
-     tooltip = "off : no alerts (Phase A backtest only) · simple : basic text · json : webhook-ready payload for FTMO/OANDA bridge")
-
-webhook_url_hint = input.string("", "Webhook URL (reminder only)",
-     group   = g9_alert,
-     tooltip = "This field does NOT send alerts. Paste your webhook URL in TradingView's alert dialog. This is just a memo")
+// Colors (pastel palette)
+C_FVG_BULL    = color.new(#4DB6AC, 92)
+C_FVG_BULL_B  = color.new(#4DB6AC, 70)
+C_FVG_BEAR    = color.new(#F8BBD0, 92)
+C_FVG_BEAR_B  = color.new(#F8BBD0, 70)
+C_FVG_MIT     = color.new(#9E9E9E, 95)
+C_OB_BULL     = color.new(#81D4FA, 90)
+C_OB_BULL_B   = color.new(#81D4FA, 55)
+C_OB_BEAR     = color.new(#EF9A9A, 90)
+C_OB_BEAR_B   = color.new(#EF9A9A, 55)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║                                                                          ║
-// ║   PHASE A.2+ PLACEHOLDERS (no logic yet — will be filled per roadmap)    ║
-// ║                                                                          ║
+// ║   DATA : fetch HTF values via request.security (no lookahead)           ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  [A.2.a] ICT CORE DETECTIONS — Opens, Killzones, Swings, Power of Three ║
-// ║  Status : IMPLEMENTED ✅                                                  ║
-// ║  Next   : A.2.b PD Arrays (FVG / IFVG / BPR / OB / BB)                   ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.a.1] TIME HELPERS  (NY timezone anchors)
-// ═══════════════════════════════════════════════════════════════════════════
-hr_ny   = hour(time, kz_timezone)
-mn_ny   = minute(time, kz_timezone)
-dow_ny  = dayofweek(time, kz_timezone)
-
-is_midnight_ny   = (hr_ny == 0 and mn_ny == 0)
-is_sunday_17_ny  = (dow_ny == dayofweek.sunday and hr_ny == 17 and mn_ny == 0)
-is_monday_00_ny  = (dow_ny == dayofweek.monday and hr_ny == 0  and mn_ny == 0)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.a.2] OPENS  (§ 3.2 — Midnight / Weekly / True Day)
-// ═══════════════════════════════════════════════════════════════════════════
-// Uses request.security to get the Daily and Weekly OPEN values directly.
-// This works on ANY timeframe (M1 to W) — broker-independent.
-// Note : Weekly session uses broker default (OANDA = Sunday 17:00 NY).
-// The weekly_open_mode input is documentation-only for Phase A.2.a.
-
-daily_open_ref  = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
-weekly_open_ref = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
-
-// Detect new period start (open value changes)
-new_day_start  = ta.change(daily_open_ref)  != 0
-new_week_start = ta.change(weekly_open_ref) != 0
-
-// Live tracking of current period's open
-var float midnight_open = na
-var float weekly_open   = na
-var float tdo           = na
-
-if new_day_start
-    midnight_open := daily_open_ref
-    tdo           := daily_open_ref   // True Day Open = Midnight NY per spec § 3.2
-
-if new_week_start
-    weekly_open := weekly_open_ref
-
-// Draw horizontal lines that extend right until next period reset
-var line midnight_line = na
-var line weekly_line   = na
-
-if new_day_start and barstate.isconfirmed
-    line.delete(midnight_line)
-    midnight_line := line.new(
-         bar_index, daily_open_ref, bar_index + 1, daily_open_ref,
-         color  = color.new(#FFAB40, 50),
-         style  = line.style_dashed,
-         width  = 1,
-         extend = extend.right)
-
-if new_week_start and barstate.isconfirmed
-    line.delete(weekly_line)
-    weekly_line := line.new(
-         bar_index, weekly_open_ref, bar_index + 1, weekly_open_ref,
-         color  = color.new(#66BB6A, 50),
-         style  = line.style_dashed,
-         width  = 1,
-         extend = extend.right)
-
-// Right-edge labels for Midnight / Weekly opens (lazy init)
-var label midnight_lbl = na
-var label weekly_lbl   = na
-
-if barstate.islast
-    if not na(midnight_open)
-        if na(midnight_lbl)
-            midnight_lbl := label.new(
-                 x = bar_index + 3, y = midnight_open, text = "00:00",
-                 style     = label.style_label_left,
-                 color     = color.new(#FFAB40, 20),
-                 textcolor = color.white,
-                 size      = size.small)
-        else
-            label.set_xy(midnight_lbl, bar_index + 3, midnight_open)
-    if not na(weekly_open)
-        if na(weekly_lbl)
-            weekly_lbl := label.new(
-                 x = bar_index + 3, y = weekly_open, text = "W",
-                 style     = label.style_label_left,
-                 color     = color.new(#66BB6A, 20),
-                 textcolor = color.white,
-                 size      = size.small)
-        else
-            label.set_xy(weekly_lbl, bar_index + 3, weekly_open)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.a.3] KILLZONES BACKGROUNDS  (§ 3.7)
-// ═══════════════════════════════════════════════════════════════════════════
-
-in_asia     = not na(time(timeframe.period, kz_asia_session, kz_timezone))
-in_london   = not na(time(timeframe.period, kz_london_session, kz_timezone))
-in_ny_am    = not na(time(timeframe.period, kz_ny_am_session, kz_timezone))
-in_ny_lunch = not na(time(timeframe.period, kz_ny_lunch_session, kz_timezone))
-in_ny_pm    = not na(time(timeframe.period, kz_ny_pm_session, kz_timezone))
-
-in_any_kz = in_asia or in_london or in_ny_am or in_ny_pm
-current_kz = in_ny_lunch ? "NY Lunch (NO TRADE)" : in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : in_ny_pm ? "NY PM" : "Out of KZ"
-
-// KZ backgrounds only visible on intraday TFs (avoid clutter on D/W charts)
-_kz_is_intraday = timeframe.isintraday
-
-bgcolor(show_kz_bg and _kz_is_intraday and in_asia    ? color.new(#9C27B0, 96) : na, title = "Asia KZ BG")
-bgcolor(show_kz_bg and _kz_is_intraday and in_london  ? color.new(#2196F3, 96) : na, title = "London KZ BG")
-bgcolor(show_kz_bg and _kz_is_intraday and in_ny_am   ? color.new(#FF9800, 96) : na, title = "NY AM KZ BG")
-bgcolor(show_kz_bg and _kz_is_intraday and in_ny_pm   ? color.new(#E91E63, 96) : na, title = "NY PM KZ BG")
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.a.4] SWING POINTS  (foundation for BOS / CHoCH / PD zones)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Swing lookback — per spec § 7.3, accept natural pivot delay (no tricks)
-swing_lookback = 10
-
-swing_h = ta.pivothigh(high, swing_lookback, swing_lookback)
-swing_l = ta.pivotlow(low,   swing_lookback, swing_lookback)
-
-var float last_sh       = na
-var float last_sl       = na
-var int   last_sh_bar   = na
-var int   last_sl_bar   = na
-
-if not na(swing_h)
-    last_sh     := swing_h
-    last_sh_bar := bar_index - swing_lookback
-
-if not na(swing_l)
-    last_sl     := swing_l
-    last_sl_bar := bar_index - swing_lookback
-
-// Visual swing markers : tiny triangles (optional, off by default — mentor style)
-plotshape(show_labels and not na(swing_h) ? swing_h : na,
-     title    = "Swing H",
-     style    = shape.triangledown,
-     location = location.absolute,
-     color    = color.new(col_bear, 60),
-     size     = size.tiny,
-     offset   = -swing_lookback)
-
-plotshape(show_labels and not na(swing_l) ? swing_l : na,
-     title    = "Swing L",
-     style    = shape.triangleup,
-     location = location.absolute,
-     color    = color.new(col_bull, 60),
-     size     = size.tiny,
-     offset   = -swing_lookback)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.a.5] POWER OF THREE (PO3)  (§ 3.1)
-// ═══════════════════════════════════════════════════════════════════════════
-// Daily / Weekly candle decomposition : Accumulation → Manipulation → Distribution
-// Retrospective on PREVIOUS candle + phase of CURRENT candle via NY hour
-
-// ──── Previous DAILY PO3 (retrospective) ────
-[d_prev_o, d_prev_h, d_prev_l, d_prev_c] = request.security(
-     syminfo.tickerid,
-     "D",
-     [open[1], high[1], low[1], close[1]],
+[pdh_val, pdl_val] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
      lookahead = barmerge.lookahead_off)
-
-d_range       = d_prev_h - d_prev_l
-d_body        = math.abs(d_prev_c - d_prev_o)
-d_upper_wick  = d_prev_h - math.max(d_prev_o, d_prev_c)
-d_lower_wick  = math.min(d_prev_o, d_prev_c) - d_prev_l
-
-// Bullish PO3 : close > open, lower wick 1.5x upper wick, body > 40% of range
-po3_daily_prev_bull = use_po3_daily and d_prev_c > d_prev_o and d_lower_wick > d_upper_wick * 1.5 and d_body > d_range * 0.4
-
-// Bearish PO3 : close < open, upper wick 1.5x lower wick, body > 40% of range
-po3_daily_prev_bear = use_po3_daily and d_prev_c < d_prev_o and d_upper_wick > d_lower_wick * 1.5 and d_body > d_range * 0.4
-
-po3_daily_prev_dir = po3_daily_prev_bull ? "bull" : po3_daily_prev_bear ? "bear" : "neutral"
-
-// ──── Previous WEEKLY PO3 (retrospective) ────
-[w_prev_o, w_prev_h, w_prev_l, w_prev_c] = request.security(
-     syminfo.tickerid,
-     "W",
-     [open[1], high[1], low[1], close[1]],
+[pwh_val, pwl_val] = request.security(syminfo.tickerid, "W", [high[1], low[1]],
      lookahead = barmerge.lookahead_off)
-
-w_range       = w_prev_h - w_prev_l
-w_body        = math.abs(w_prev_c - w_prev_o)
-w_upper_wick  = w_prev_h - math.max(w_prev_o, w_prev_c)
-w_lower_wick  = math.min(w_prev_o, w_prev_c) - w_prev_l
-
-po3_weekly_prev_bull = use_po3_weekly and w_prev_c > w_prev_o and w_lower_wick > w_upper_wick * 1.5 and w_body > w_range * 0.4
-po3_weekly_prev_bear = use_po3_weekly and w_prev_c < w_prev_o and w_upper_wick > w_lower_wick * 1.5 and w_body > w_range * 0.4
-
-po3_weekly_prev_dir = po3_weekly_prev_bull ? "bull" : po3_weekly_prev_bear ? "bear" : "neutral"
-
-// ──── Current PO3 phase (time-based, simplified) ────
-// Accumulation : 00:00 - 02:00 NY (before London)
-// Manipulation : 02:00 - 05:00 NY (London sweep / fakeout)
-// Distribution : 05:00 - 17:00 NY (main directional move)
-po3_current_phase = hr_ny < 2 ? "accum" : hr_ny < 5 ? "manip" : hr_ny < 17 ? "distrib" : "close"
+[pmh_val, pml_val] = request.security(syminfo.tickerid, "M", [high[1], low[1]],
+     lookahead = barmerge.lookahead_off)
+d_open_val  = request.security(syminfo.tickerid, "D", open,
+     lookahead = barmerge.lookahead_off)
+w_open_val  = request.security(syminfo.tickerid, "W", open,
+     lookahead = barmerge.lookahead_off)
+d_prev_o = request.security(syminfo.tickerid, "D", open[1],  lookahead = barmerge.lookahead_off)
+d_prev_c = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_off)
+w_prev_o = request.security(syminfo.tickerid, "W", open[1],  lookahead = barmerge.lookahead_off)
+w_prev_c = request.security(syminfo.tickerid, "W", close[1], lookahead = barmerge.lookahead_off)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  [A.2.b] PD ARRAYS — FVG / IFVG / BPR / OB / BB  (§ 3.4)                ║
-// ║  Status : IMPLEMENTED ✅                                                  ║
+// ║   RELIABLE LEVEL PLOTTING via plot() — 100% Pine v6 guaranteed visible  ║
+// ║   plot() auto-creates right-edge price label + legend title              ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.1] TYPE DEFINITIONS
-// ═══════════════════════════════════════════════════════════════════════════
+plot(show_pdh_pdl ? pdh_val : na, title = "PDH",
+     color = color.new(#5C6BC0, 0), linewidth = 1, style = plot.style_linebr)
+plot(show_pdh_pdl ? pdl_val : na, title = "PDL",
+     color = color.new(#5C6BC0, 0), linewidth = 1, style = plot.style_linebr)
+
+plot(show_pwh_pwl ? pwh_val : na, title = "PWH",
+     color = color.new(#26C6DA, 0), linewidth = 1, style = plot.style_linebr)
+plot(show_pwh_pwl ? pwl_val : na, title = "PWL",
+     color = color.new(#26C6DA, 0), linewidth = 1, style = plot.style_linebr)
+
+plot(show_pmh_pml ? pmh_val : na, title = "PMH",
+     color = color.new(#66BB6A, 0), linewidth = 1, style = plot.style_linebr)
+plot(show_pmh_pml ? pml_val : na, title = "PML",
+     color = color.new(#66BB6A, 0), linewidth = 1, style = plot.style_linebr)
+
+plot(show_mid_op ? d_open_val : na, title = "Midnight",
+     color = color.new(#FFAB40, 0), linewidth = 1, style = plot.style_linebr)
+
+plot(show_wk_op ? w_open_val : na, title = "Weekly",
+     color = color.new(#66BB6A, 0), linewidth = 2, style = plot.style_linebr)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║   KILLZONES BACKGROUND (intraday only)                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+_is_intra = timeframe.isintraday
+
+_in_asia   = not na(time(timeframe.period, sess_asia,   kz_tz))
+_in_london = not na(time(timeframe.period, sess_london, kz_tz))
+_in_ny_am  = not na(time(timeframe.period, sess_ny_am,  kz_tz))
+_in_ny_pm  = not na(time(timeframe.period, sess_ny_pm,  kz_tz))
+
+bgcolor(show_kz and _is_intra and _in_asia   ? color.new(#9C27B0, 95) : na, title = "Asia KZ BG")
+bgcolor(show_kz and _is_intra and _in_london ? color.new(#2196F3, 95) : na, title = "London KZ BG")
+bgcolor(show_kz and _is_intra and _in_ny_am  ? color.new(#FF9800, 95) : na, title = "NY AM KZ BG")
+bgcolor(show_kz and _is_intra and _in_ny_pm  ? color.new(#E91E63, 95) : na, title = "NY PM KZ BG")
+
+_in_any_kz = _in_asia or _in_london or _in_ny_am or _in_ny_pm
+_current_kz = _in_asia ? "Asia" : _in_london ? "London" : _in_ny_am ? "NY AM" : _in_ny_pm ? "NY PM" : "OFF"
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║   POWER OF THREE (PO3) — previous daily / weekly                        ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+[_d_prev_h, _d_prev_l] = [pdh_val, pdl_val]
+[_w_prev_h, _w_prev_l] = [pwh_val, pwl_val]
+
+_d_range = _d_prev_h - _d_prev_l
+_d_body  = math.abs(d_prev_c - d_prev_o)
+_d_uw    = _d_prev_h - math.max(d_prev_o, d_prev_c)
+_d_lw    = math.min(d_prev_o, d_prev_c) - _d_prev_l
+
+po3_d_bull = d_prev_c > d_prev_o and _d_lw > _d_uw * 1.5 and _d_body > _d_range * 0.4
+po3_d_bear = d_prev_c < d_prev_o and _d_uw > _d_lw * 1.5 and _d_body > _d_range * 0.4
+po3_d_dir  = po3_d_bull ? "BULL" : po3_d_bear ? "BEAR" : "NEUT"
+
+_w_range = _w_prev_h - _w_prev_l
+_w_body  = math.abs(w_prev_c - w_prev_o)
+_w_uw    = _w_prev_h - math.max(w_prev_o, w_prev_c)
+_w_lw    = math.min(w_prev_o, w_prev_c) - _w_prev_l
+
+po3_w_bull = w_prev_c > w_prev_o and _w_lw > _w_uw * 1.5 and _w_body > _w_range * 0.4
+po3_w_bear = w_prev_c < w_prev_o and _w_uw > _w_lw * 1.5 and _w_body > _w_range * 0.4
+po3_w_dir  = po3_w_bull ? "BULL" : po3_w_bear ? "BEAR" : "NEUT"
+
+// Current phase (time-based, NY)
+_hr_ny = hour(time, kz_tz)
+po3_phase = _hr_ny < 2 ? "ACCUM" : _hr_ny < 5 ? "MANIP" : _hr_ny < 17 ? "DISTRIB" : "CLOSE"
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║   FVG DETECTION                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 type FVG
-    float top        = 0.0
-    float bottom     = 0.0
+    float top         = 0.0
+    float bottom      = 0.0
     int   created_bar = 0
-    string direction  = "bull"   // bull | bear
-    bool  mitigated  = false     // price entered the zone
-    bool  inverted   = false     // closed through by body → becomes IFVG
-    box   viz        = na
+    string direction  = "bull"
+    bool  mitigated   = false
+    box   viz         = na
+
+var array<FVG> fvgs = array.new<FVG>()
+
+_fvg_bull = barstate.isconfirmed and low > high[2]
+_fvg_bear = barstate.isconfirmed and high < low[2]
+
+if show_fvg and _fvg_bull
+    if array.size(fvgs) >= 50
+        _old = array.shift(fvgs)
+        box.delete(_old.viz)
+    _new_fvg = FVG.new(
+         top = low, bottom = high[2],
+         created_bar = bar_index,
+         direction = "bull", mitigated = false,
+         viz = box.new(bar_index - 2, low, bar_index + fvg_ext, high[2],
+              bgcolor      = C_FVG_BULL,
+              border_color = C_FVG_BULL_B,
+              border_width = 1))
+    array.push(fvgs, _new_fvg)
+
+if show_fvg and _fvg_bear
+    if array.size(fvgs) >= 50
+        _old = array.shift(fvgs)
+        box.delete(_old.viz)
+    _new_fvg = FVG.new(
+         top = low[2], bottom = high,
+         created_bar = bar_index,
+         direction = "bear", mitigated = false,
+         viz = box.new(bar_index - 2, low[2], bar_index + fvg_ext, high,
+              bgcolor      = C_FVG_BEAR,
+              border_color = C_FVG_BEAR_B,
+              border_width = 1))
+    array.push(fvgs, _new_fvg)
+
+// Mitigation + expiry
+if array.size(fvgs) > 0 and barstate.isconfirmed
+    for i = array.size(fvgs) - 1 to 0
+        if i < array.size(fvgs)
+            _fvg = array.get(fvgs, i)
+            if bar_index - _fvg.created_bar > fvg_age
+                box.delete(_fvg.viz)
+                array.remove(fvgs, i)
+                continue
+            if not _fvg.mitigated
+                _hit = _fvg.direction == "bull" and low <= _fvg.top or _fvg.direction == "bear" and high >= _fvg.bottom
+                if _hit
+                    _fvg.mitigated := true
+                    box.set_bgcolor(_fvg.viz, C_FVG_MIT)
+                    box.set_border_color(_fvg.viz, color.new(#9E9E9E, 80))
+                    array.set(fvgs, i, _fvg)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║   OB DETECTION (simplified : opposite candle before impulsive move)     ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 type OB
     float top         = 0.0
     float bottom      = 0.0
     int   created_bar = 0
-    string direction  = "bull"   // bull | bear
-    bool  mitigated   = false    // price returned to OB
-    bool  broken      = false    // OB invalidated → becomes BB
-    bool  strict_valid= false    // passed 3-condition check (sweep + FVG + BOS)
+    string direction  = "bull"
+    bool  mitigated   = false
     box   viz         = na
 
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.2] ARRAYS (active zones)
-// ═══════════════════════════════════════════════════════════════════════════
+var array<OB> obs = array.new<OB>()
 
-var array<FVG> fvgs = array.new<FVG>()
-var array<OB>  obs  = array.new<OB>()
+_ob_bull = barstate.isconfirmed and close[1] < open[1] and close > open and close > high[1]
+_ob_bear = barstate.isconfirmed and close[1] > open[1] and close < open and close < low[1]
 
-MAX_ACTIVE_FVGS = 50
-MAX_ACTIVE_OBS  = 30
+if show_ob and _ob_bull
+    if array.size(obs) >= 30
+        _old = array.shift(obs)
+        box.delete(_old.viz)
+    _new_ob = OB.new(
+         top = high[1], bottom = low[1],
+         created_bar = bar_index - 1,
+         direction = "bull", mitigated = false,
+         viz = box.new(bar_index - 1, high[1], bar_index + fvg_ext, low[1],
+              bgcolor      = C_OB_BULL,
+              border_color = C_OB_BULL_B,
+              border_width = 1))
+    array.push(obs, _new_ob)
 
-// Pastel palette (matches mentor's aesthetic)
-C_FVG_BULL_BG     = color.new(#4DB6AC, 92)   // pastel teal
-C_FVG_BULL_BORDER = color.new(#4DB6AC, 70)
-C_FVG_BEAR_BG     = color.new(#F8BBD0, 92)   // pastel pink
-C_FVG_BEAR_BORDER = color.new(#F8BBD0, 70)
-C_FVG_MIT_BG      = color.new(#9E9E9E, 95)   // greyed out when mitigated
-C_IFVG_BG         = color.new(#BA68C8, 92)   // pastel purple
-C_IFVG_BORDER     = color.new(#BA68C8, 65)
-C_OB_BULL_BG      = color.new(#81D4FA, 90)   // pastel sky blue
-C_OB_BULL_BORDER  = color.new(#81D4FA, 55)
-C_OB_BEAR_BG      = color.new(#EF9A9A, 90)   // pastel red
-C_OB_BEAR_BORDER  = color.new(#EF9A9A, 55)
-C_BB_BG           = color.new(#FFCC80, 90)   // pastel amber
-C_BB_BORDER       = color.new(#FFCC80, 55)
-C_LEVEL_WEEKLY    = color.new(#29B6F6, 40)   // bright blue for weekly
-C_LEVEL_DAILY     = color.new(#7986CB, 40)   // indigo for daily
-C_LEVEL_MONTHLY   = color.new(#66BB6A, 40)   // green for monthly
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.3] FVG DETECTION  (§ 3.4)
-// ═══════════════════════════════════════════════════════════════════════════
-// Bullish FVG : low[0] > high[2]   (gap between high of 2 bars ago and low now)
-// Bearish FVG : high[0] < low[2]   (gap between low of 2 bars ago and high now)
-
-is_bull_fvg = barstate.isconfirmed and low > high[2]
-is_bear_fvg = barstate.isconfirmed and high < low[2]
-
-// Create new bull FVG
-if show_fvg and is_bull_fvg
-    // Cap list size to prevent memory bloat
-    if array.size(fvgs) >= MAX_ACTIVE_FVGS
-        oldest = array.shift(fvgs)
-        box.delete(oldest.viz)
-    new_fvg_bull = FVG.new(
-         top         = low,
-         bottom      = high[2],
-         created_bar = bar_index,
-         direction   = "bull",
-         mitigated   = false,
-         inverted    = false,
-         viz         = box.new(
-              left         = bar_index - 2,
-              top          = low,
-              right        = bar_index + 15,
-              bottom       = high[2],
-              bgcolor      = color.new(#4DB6AC, 92),
-              border_color = color.new(#4DB6AC, 70),
-              border_width = 1,
-              extend       = extend.none))
-    array.push(fvgs, new_fvg_bull)
-
-// Create new bear FVG
-if show_fvg and is_bear_fvg
-    if array.size(fvgs) >= MAX_ACTIVE_FVGS
-        oldest = array.shift(fvgs)
-        box.delete(oldest.viz)
-    new_fvg_bear = FVG.new(
-         top         = low[2],
-         bottom      = high,
-         created_bar = bar_index,
-         direction   = "bear",
-         mitigated   = false,
-         inverted    = false,
-         viz         = box.new(
-              left         = bar_index - 2,
-              top          = low[2],
-              right        = bar_index + 15,
-              bottom       = high,
-              bgcolor      = color.new(#F8BBD0, 92),
-              border_color = color.new(#F8BBD0, 70),
-              border_width = 1,
-              extend       = extend.none))
-    array.push(fvgs, new_fvg_bear)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.4] FVG MITIGATION + IFVG TRACKING
-// ═══════════════════════════════════════════════════════════════════════════
-
-if array.size(fvgs) > 0 and barstate.isconfirmed
-    // Iterate in reverse so we can safely remove
-    for i = array.size(fvgs) - 1 to 0
-        if i < array.size(fvgs)
-            fvg = array.get(fvgs, i)
-
-            // Expire old FVGs
-            if bar_index - fvg.created_bar > fvg_age_max
-                box.delete(fvg.viz)
-                array.remove(fvgs, i)
-                continue
-
-            // IFVG detection (closed through by body) — check BEFORE mitigation
-            if show_ifvg and not fvg.inverted
-                became_ifvg = false
-                if fvg.direction == "bull" and close < fvg.bottom
-                    fvg.inverted := true
-                    became_ifvg  := true
-                if fvg.direction == "bear" and close > fvg.top
-                    fvg.inverted := true
-                    became_ifvg  := true
-                if became_ifvg
-                    box.set_bgcolor(fvg.viz, C_IFVG_BG)
-                    box.set_border_color(fvg.viz, C_IFVG_BORDER)
-                    box.set_right(fvg.viz, bar_index + 15)
-                    array.set(fvgs, i, fvg)
-
-            // Mitigation tracking (price enters FVG zone)
-            if not fvg.mitigated and not fvg.inverted
-                is_mit_now = false
-                if fvg.direction == "bull" and low <= fvg.top
-                    fvg.mitigated := true
-                    is_mit_now    := true
-                if fvg.direction == "bear" and high >= fvg.bottom
-                    fvg.mitigated := true
-                    is_mit_now    := true
-                if is_mit_now
-                    // Fade the FVG to neutral grey when mitigated
-                    box.set_bgcolor(fvg.viz, C_FVG_MIT_BG)
-                    box.set_border_color(fvg.viz, color.new(#9E9E9E, 80))
-                    array.set(fvgs, i, fvg)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.5] ORDER BLOCK DETECTION  (§ 3.4 — strict mode if enabled)
-// ═══════════════════════════════════════════════════════════════════════════
-// OB strict conditions (all 3 required if ob_require_3_conditions) :
-//   (a) Liquidity sweep : the move after took out a recent high/low
-//   (b) Delivered a FVG : the move was impulsive enough to leave a gap
-//   (c) Created a BOS  : closed beyond the prior swing
-
-// Bullish OB candidate : previous bearish candle followed by impulsive bullish move
-bull_ob_candidate = barstate.isconfirmed and close[1] < open[1] and close > open and close > high[1]
-bear_ob_candidate = barstate.isconfirmed and close[1] > open[1] and close < open and close < low[1]
-
-// Strict condition checks
-swept_lows_recent  = not na(last_sl) and low[1]  < last_sl
-swept_highs_recent = not na(last_sh) and high[1] > last_sh
-bos_bull_now       = not na(last_sh) and close > last_sh
-bos_bear_now       = not na(last_sl) and close < last_sl
-
-// Bullish OB = swept recent low + created BOS upward + impulsive (FVG implicit)
-bull_ob_strict = bull_ob_candidate and swept_lows_recent and bos_bull_now
-bear_ob_strict = bear_ob_candidate and swept_highs_recent and bos_bear_now
-
-// Apply strict mode gate
-bull_ob_valid = ob_require_3_conditions ? bull_ob_strict : bull_ob_candidate
-bear_ob_valid = ob_require_3_conditions ? bear_ob_strict : bear_ob_candidate
-
-// Create bull OB
-if show_ob and bull_ob_valid
-    if array.size(obs) >= MAX_ACTIVE_OBS
-        oldest_ob = array.shift(obs)
-        box.delete(oldest_ob.viz)
-    new_ob_bull = OB.new(
-         top          = high[1],
-         bottom       = low[1],
-         created_bar  = bar_index - 1,
-         direction    = "bull",
-         mitigated    = false,
-         broken       = false,
-         strict_valid = bull_ob_strict,
-         viz          = box.new(
-              left         = bar_index - 1,
-              top          = high[1],
-              right        = bar_index + 15,
-              bottom       = low[1],
-              bgcolor      = C_OB_BULL_BG,
-              border_color = C_OB_BULL_BORDER,
-              border_width = 1,
-              extend       = extend.none))
-    array.push(obs, new_ob_bull)
-
-// Create bear OB
-if show_ob and bear_ob_valid
-    if array.size(obs) >= MAX_ACTIVE_OBS
-        oldest_ob = array.shift(obs)
-        box.delete(oldest_ob.viz)
-    new_ob_bear = OB.new(
-         top          = high[1],
-         bottom       = low[1],
-         created_bar  = bar_index - 1,
-         direction    = "bear",
-         mitigated    = false,
-         broken       = false,
-         strict_valid = bear_ob_strict,
-         viz          = box.new(
-              left         = bar_index - 1,
-              top          = high[1],
-              right        = bar_index + 15,
-              bottom       = low[1],
-              bgcolor      = C_OB_BEAR_BG,
-              border_color = C_OB_BEAR_BORDER,
-              border_width = 1,
-              extend       = extend.none))
-    array.push(obs, new_ob_bear)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.6] OB MITIGATION + BREAKER BLOCK (BB) PROMOTION
-// ═══════════════════════════════════════════════════════════════════════════
+if show_ob and _ob_bear
+    if array.size(obs) >= 30
+        _old = array.shift(obs)
+        box.delete(_old.viz)
+    _new_ob = OB.new(
+         top = high[1], bottom = low[1],
+         created_bar = bar_index - 1,
+         direction = "bear", mitigated = false,
+         viz = box.new(bar_index - 1, high[1], bar_index + fvg_ext, low[1],
+              bgcolor      = C_OB_BEAR,
+              border_color = C_OB_BEAR_B,
+              border_width = 1))
+    array.push(obs, _new_ob)
 
 if array.size(obs) > 0 and barstate.isconfirmed
     for i = array.size(obs) - 1 to 0
         if i < array.size(obs)
-            ob = array.get(obs, i)
-
-            // Expire old OBs
-            if bar_index - ob.created_bar > fvg_age_max * 2
-                box.delete(ob.viz)
+            _ob = array.get(obs, i)
+            if bar_index - _ob.created_bar > fvg_age * 2
+                box.delete(_ob.viz)
                 array.remove(obs, i)
-                continue
-
-            // Mitigation : price returned inside OB
-            if not ob.mitigated and not ob.broken
-                hit_bull = ob.direction == "bull" and low <= ob.top and high >= ob.bottom
-                hit_bear = ob.direction == "bear" and high >= ob.bottom and low <= ob.top
-                if hit_bull or hit_bear
-                    ob.mitigated := true
-                    array.set(obs, i, ob)
-
-            // BB promotion : OB broken (close through on opposite direction)
-            if show_bb and not ob.broken
-                bb_bull_now = ob.direction == "bull" and close < ob.bottom
-                bb_bear_now = ob.direction == "bear" and close > ob.top
-                if bb_bull_now or bb_bear_now
-                    ob.broken := true
-                    box.set_bgcolor(ob.viz, C_BB_BG)
-                    box.set_border_color(ob.viz, C_BB_BORDER)
-                    array.set(obs, i, ob)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.b.7] ACTIVE ZONES SUMMARY (for HUD)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Count active unmitigated FVGs by direction
-active_bull_fvg_count = 0
-active_bear_fvg_count = 0
-active_ifvg_count     = 0
-if array.size(fvgs) > 0
-    for i = 0 to array.size(fvgs) - 1
-        fvg_check = array.get(fvgs, i)
-        if not fvg_check.mitigated and not fvg_check.inverted
-            if fvg_check.direction == "bull"
-                active_bull_fvg_count := active_bull_fvg_count + 1
-            else
-                active_bear_fvg_count := active_bear_fvg_count + 1
-        if fvg_check.inverted
-            active_ifvg_count := active_ifvg_count + 1
-
-// Count active OBs and BBs
-active_bull_ob_count = 0
-active_bear_ob_count = 0
-active_bb_count      = 0
-if array.size(obs) > 0
-    for i = 0 to array.size(obs) - 1
-        ob_check = array.get(obs, i)
-        if not ob_check.mitigated and not ob_check.broken
-            if ob_check.direction == "bull"
-                active_bull_ob_count := active_bull_ob_count + 1
-            else
-                active_bear_ob_count := active_bear_ob_count + 1
-        if ob_check.broken
-            active_bb_count := active_bb_count + 1
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  [A.2.d-early] TIME-BASED LIQUIDITY LEVELS                              ║
-// ║  PDH / PDL / PWH / PWL / PMH / PML  (§ 3.3)                             ║
-// ║  Style : dashed lines + right-edge text labels (mentor aesthetic)        ║
+// ║   STRUCTURE : swing points + BOS / CHoCH                                ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-// Fetch previous-period extremes
-[pdh_val, pdl_val] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_off)
-[pwh_val, pwl_val] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_off)
-[pmh_val, pml_val] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_off)
+_swh = ta.pivothigh(high, swing_len, swing_len)
+_swl = ta.pivotlow(low,   swing_len, swing_len)
 
-// Palette : indigo (D) / cyan (W) / green (M) — mentor-style
-_col_pd_line = color.new(#5C6BC0, 55)   // indigo
-_col_pd_txt  = color.new(#5C6BC0, 10)
-_col_pw_line = color.new(#26C6DA, 55)   // cyan
-_col_pw_txt  = color.new(#26C6DA, 10)
-_col_pm_line = color.new(#66BB6A, 55)   // green
-_col_pm_txt  = color.new(#66BB6A, 10)
+var float last_sh = na
+var float last_sl = na
+if not na(_swh)
+    last_sh := _swh
+if not na(_swl)
+    last_sl := _swl
 
-new_day_liq   = ta.change(pdh_val) != 0
-new_week_liq  = ta.change(pwh_val) != 0
-new_month_liq = ta.change(pmh_val) != 0
+var float broken_sh = na
+var float broken_sl = na
+var string trend    = "NEUT"
 
-// Simple pattern : lazy-init on first valid barstate.islast, update via label.set_*
+_bos_bull = barstate.isconfirmed and not na(last_sh) and last_sh != broken_sh and close > last_sh
+_bos_bear = barstate.isconfirmed and not na(last_sl) and last_sl != broken_sl and close < last_sl
 
-// Helper : create or update a label
-f_update_label(label_ref, x, y, txt, bg, txtcol) =>
-    label result = na
-    if na(label_ref)
-        result := label.new(x = x, y = y, text = txt,
-             style = label.style_label_left,
-             color = bg,
-             textcolor = txtcol,
-             size = size.small,
-             textalign = text.align_left)
-    else
-        label.set_xy(label_ref, x, y)
-        label.set_text(label_ref, txt)
-        result := label_ref
-    result
+if _bos_bull
+    broken_sh := last_sh
+    _was_bear = trend == "BEAR"
+    trend := "BULL"
+    if show_bos
+        label.new(bar_index, last_sh, _was_bear ? "CHoCH ↑" : "BOS ↑",
+             style     = label.style_label_down,
+             color     = _was_bear ? color.new(#FBBF24, 30) : color.new(#10B981, 30),
+             textcolor = color.white,
+             size      = size.small)
 
-// ──── PDH / PDL ────
-var line  pdh_line = na
-var line  pdl_line = na
-var label pdh_lbl  = na
-var label pdl_lbl  = na
-
-if show_pdh_pdl and new_day_liq and barstate.isconfirmed
-    line.delete(pdh_line)
-    line.delete(pdl_line)
-    pdh_line := line.new(bar_index, pdh_val, bar_index + 1, pdh_val,
-         color = _col_pd_line, style = line.style_dashed, width = 1, extend = extend.right)
-    pdl_line := line.new(bar_index, pdl_val, bar_index + 1, pdl_val,
-         color = _col_pd_line, style = line.style_dashed, width = 1, extend = extend.right)
-
-if show_pdh_pdl and barstate.islast
-    if not na(pdh_val)
-        pdh_lbl := f_update_label(pdh_lbl, bar_index + 3, pdh_val, "PDH", color.new(#5C6BC0, 20), color.white)
-    if not na(pdl_val)
-        pdl_lbl := f_update_label(pdl_lbl, bar_index + 3, pdl_val, "PDL", color.new(#5C6BC0, 20), color.white)
-
-// ──── PWH / PWL ────
-var line  pwh_line = na
-var line  pwl_line = na
-var label pwh_lbl  = na
-var label pwl_lbl  = na
-
-if show_pwh_pwl and new_week_liq and barstate.isconfirmed
-    line.delete(pwh_line)
-    line.delete(pwl_line)
-    pwh_line := line.new(bar_index, pwh_val, bar_index + 1, pwh_val,
-         color = _col_pw_line, style = line.style_dashed, width = 1, extend = extend.right)
-    pwl_line := line.new(bar_index, pwl_val, bar_index + 1, pwl_val,
-         color = _col_pw_line, style = line.style_dashed, width = 1, extend = extend.right)
-
-if show_pwh_pwl and barstate.islast
-    if not na(pwh_val)
-        pwh_lbl := f_update_label(pwh_lbl, bar_index + 3, pwh_val, "PWH", color.new(#26C6DA, 20), color.white)
-    if not na(pwl_val)
-        pwl_lbl := f_update_label(pwl_lbl, bar_index + 3, pwl_val, "PWL", color.new(#26C6DA, 20), color.white)
-
-// ──── PMH / PML ────
-var line  pmh_line = na
-var line  pml_line = na
-var label pmh_lbl  = na
-var label pml_lbl  = na
-
-if show_pmh_pml and new_month_liq and barstate.isconfirmed
-    line.delete(pmh_line)
-    line.delete(pml_line)
-    pmh_line := line.new(bar_index, pmh_val, bar_index + 1, pmh_val,
-         color = _col_pm_line, style = line.style_dashed, width = 1, extend = extend.right)
-    pml_line := line.new(bar_index, pml_val, bar_index + 1, pml_val,
-         color = _col_pm_line, style = line.style_dashed, width = 1, extend = extend.right)
-
-if show_pmh_pml and barstate.islast
-    if not na(pmh_val)
-        pmh_lbl := f_update_label(pmh_lbl, bar_index + 3, pmh_val, "PMH", color.new(#66BB6A, 20), color.white)
-    if not na(pml_val)
-        pml_lbl := f_update_label(pml_lbl, bar_index + 3, pml_val, "PML", color.new(#66BB6A, 20), color.white)
+if _bos_bear
+    broken_sl := last_sl
+    _was_bull = trend == "BULL"
+    trend := "BEAR"
+    if show_bos
+        label.new(bar_index, last_sl, _was_bull ? "CHoCH ↓" : "BOS ↓",
+             style     = label.style_label_up,
+             color     = _was_bull ? color.new(#FBBF24, 30) : color.new(#EF4444, 30),
+             textcolor = color.white,
+             size      = size.small)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  [A.2.c] MARKET STRUCTURE — BOS / CHoCH / CISD / MSS  (§ 3.5)           ║
-// ║  Status : IMPLEMENTED ✅                                                  ║
+// ║   HUD TABLE (top right — simple, solid bg, guaranteed visible)          ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.c.1] TREND / STRUCTURE STATE TRACKER
-// ═══════════════════════════════════════════════════════════════════════════
-// We track the current structural trend : "bull" | "bear" | "neutral".
-// - Updated on each confirmed swing high/low beyond prior structural extreme.
-// - Used to identify BOS (continuation) vs CHoCH (reversal).
-
-var string structure_trend = "neutral"
-
-// Prior structural extremes (last 2 swing highs / lows)
-var float prior_sh   = na    // swing high before last_sh
-var float prior_sl   = na    // swing low before last_sl
-var int   prior_sh_bar = na
-var int   prior_sl_bar = na
-
-// When a new swing H is confirmed, shift last_sh → prior_sh
-// (This uses the swing_h from A.2.a.4 detection)
-if not na(swing_h) and barstate.isconfirmed
-    prior_sh     := last_sh != swing_h ? last_sh : prior_sh
-    prior_sh_bar := last_sh != swing_h ? last_sh_bar : prior_sh_bar
-
-if not na(swing_l) and barstate.isconfirmed
-    prior_sl     := last_sl != swing_l ? last_sl : prior_sl
-    prior_sl_bar := last_sl != swing_l ? last_sl_bar : prior_sl_bar
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.c.2] BOS (Break of Structure) — § 3.5
-// ═══════════════════════════════════════════════════════════════════════════
-// BOS bull : price closes beyond last confirmed swing high
-// BOS bear : price closes beyond last confirmed swing low
-// If bos_body_close = true : requires BODY close (min(open,close) > sh) — stricter
-
-// Track which swing has been broken so we don't re-trigger
-var float broken_sh_level = na
-var float broken_sl_level = na
-
-bos_bull_check = barstate.isconfirmed and not na(last_sh) and last_sh != broken_sh_level
-bos_bear_check = barstate.isconfirmed and not na(last_sl) and last_sl != broken_sl_level
-
-// Body-close version (stricter)
-body_hi = math.max(open, close)
-body_lo = math.min(open, close)
-
-bos_bull_trigger = bos_bull_check and (bos_body_close ? body_hi > last_sh and close > last_sh : close > last_sh)
-bos_bear_trigger = bos_bear_check and (bos_body_close ? body_lo < last_sl and close < last_sl : close < last_sl)
-
-// Visualize BOS : thin dashed line + tiny text label (mentor-style, no box)
-if bos_bull_trigger
-    broken_sh_level := last_sh
-    if show_labels
-        label.new(
-             bar_index, last_sh,
-             "BOS",
-             style     = label.style_none,
-             textcolor = color.new(col_bull, 10),
-             size      = size.tiny)
-        line.new(
-             not na(last_sh_bar) ? last_sh_bar : bar_index - 10, last_sh,
-             bar_index, last_sh,
-             color = color.new(col_bull, 55),
-             style = line.style_dotted,
-             width = 1)
-
-if bos_bear_trigger
-    broken_sl_level := last_sl
-    if show_labels
-        label.new(
-             bar_index, last_sl,
-             "BOS",
-             style     = label.style_none,
-             textcolor = color.new(col_bear, 10),
-             size      = size.tiny)
-        line.new(
-             not na(last_sl_bar) ? last_sl_bar : bar_index - 10, last_sl,
-             bar_index, last_sl,
-             color = color.new(col_bear, 55),
-             style = line.style_dotted,
-             width = 1)
-
-// Update structure_trend based on BOS
-if bos_bull_trigger
-    structure_trend := "bull"
-if bos_bear_trigger
-    structure_trend := "bear"
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.c.3] CHoCH (Change of Character) — § 3.5
-// ═══════════════════════════════════════════════════════════════════════════
-// CHoCH = BOS AGAINST the current trend direction.
-//   In a bullish structure, a BOS bear = CHoCH → potential trend reversal.
-//   In a bearish structure, a BOS bull = CHoCH → potential trend reversal.
-// MSS (Market Structure Shift) is an alias for CHoCH per spec § 3.5.
-
-choch_bull = bos_bull_trigger and structure_trend[1] == "bear"
-choch_bear = bos_bear_trigger and structure_trend[1] == "bull"
-
-mss_bull = choch_bull   // alias
-mss_bear = choch_bear   // alias
-
-// CHoCH : thin label (slightly more prominent than BOS — it IS a reversal signal)
-if choch_bull and show_labels
-    label.new(
-         bar_index, last_sh,
-         "CHoCH",
-         style     = label.style_none,
-         textcolor = color.new(#FBBF24, 10),
-         size      = size.small)
-
-if choch_bear and show_labels
-    label.new(
-         bar_index, last_sl,
-         "CHoCH",
-         style     = label.style_none,
-         textcolor = color.new(#FBBF24, 10),
-         size      = size.small)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2.c.4] CISD (Change in State of Delivery) — § 3.5
-// ═══════════════════════════════════════════════════════════════════════════
-// CISD = the LTF confirmation sequence : sweep + OB + FVG in new direction.
-// It's the TRIGGER for entries after a CHoCH on HTF.
-//
-// Detection :
-//   - Liquidity sweep on LTF (short-term high/low taken out + price returned)
-//   - An OB is now present in direction of reversal
-//   - An FVG was delivered during the move
-//
-// In practice : CISD bull = bear OB just got broken + bull FVG present + small
-//              liquidity sweep taken.
-
-// Short-term liquidity : 5-bar high/low
-st_high = ta.highest(high, 5)[1]
-st_low  = ta.lowest(low, 5)[1]
-
-sweep_st_high = barstate.isconfirmed and high > st_high and close < st_high   // wick above, close back below
-sweep_st_low  = barstate.isconfirmed and low  < st_low  and close > st_low    // wick below, close back above
-
-// Check for active bull OB present
-has_active_bull_ob = false
-has_active_bear_ob = false
-if array.size(obs) > 0
-    for i = 0 to array.size(obs) - 1
-        ob_c = array.get(obs, i)
-        if not ob_c.mitigated and not ob_c.broken
-            if ob_c.direction == "bull"
-                has_active_bull_ob := true
-            if ob_c.direction == "bear"
-                has_active_bear_ob := true
-
-// Check for active bull/bear FVG present
-has_active_bull_fvg = false
-has_active_bear_fvg = false
-if array.size(fvgs) > 0
-    for i = 0 to array.size(fvgs) - 1
-        fvg_c = array.get(fvgs, i)
-        if not fvg_c.mitigated and not fvg_c.inverted
-            if fvg_c.direction == "bull"
-                has_active_bull_fvg := true
-            if fvg_c.direction == "bear"
-                has_active_bear_fvg := true
-
-// CISD bull : sweep low + bull OB present + bull FVG just delivered
-cisd_bull = sweep_st_low and has_active_bull_ob and has_active_bull_fvg
-cisd_bear = sweep_st_high and has_active_bear_ob and has_active_bear_fvg
-
-// CISD : small triangle marker (confirmation signal, most important for entries)
-if cisd_bull and show_labels
-    label.new(
-         bar_index, low,
-         "▲",
-         style     = label.style_none,
-         textcolor = color.new(col_bull, 0),
-         size      = size.small,
-         yloc      = yloc.belowbar)
-
-if cisd_bear and show_labels
-    label.new(
-         bar_index, high,
-         "▼",
-         style     = label.style_none,
-         textcolor = color.new(col_bear, 0),
-         size      = size.small,
-         yloc      = yloc.abovebar)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.2] ICT LIQUIDITY  (PDH/PDL, PWH/PWL, PMH/PML, EQH/EQL, KZ H/L)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// To be implemented :
-//   f_pdh_pdl()                  → [float, float]
-//   f_pwh_pwl()                  → [float, float]
-//   f_pmh_pml()                  → [float, float]
-//   f_kz_prev_hl(session)        → [float, float]
-//   f_eqh_eql(tolerance)         → [array<float>, array<float>]
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.3] BIAIS DAILY + WEEKLY ENGINE
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// To be implemented :
-//   f_bias_weekly() → "bull" | "bear" | "neutral"
-//   f_bias_daily()  → "bull" | "bear" | "neutral"
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.4] CONTINUATION SETUP
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Conditions HTF :
-//   - bias_daily aligned with bias_weekly
-//   - price in valid PD array (OB + FVG in correct zone : Discount if bull / Premium if bear)
-//   - price above/below Daily Open per bias
-//
-// Conditions LTF (in active KZ) :
-//   - sweep internal or minor liquidity
-//   - CISD : BB + IFVG in bias direction
-//   - entry on retest of BB or 50% FVG
-//
-// Entry : limit 50% FVG or retest BB
-// SL    : beyond sweep + sl_buffer_pips
-// TP    : next external liquidity (PDH/PDL/PWH/PWL). If RR < rr_target_1 → skip
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.5] REVERSAL SETUP
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Conditions HTF :
-//   - external time-based liquidity swept (PDH/PWH/EQH/etc)
-//   - BB + IFVG formation invalidating prior structure
-//   - SMT divergence (optional but recommended, mandatory if filter on)
-//
-// Conditions LTF :
-//   - internal sweep
-//   - CISD : OB + FVG in new direction
-//   - entry on retest
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.6] FILTERS
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// - KZ filter : block entries outside configured killzones
-// - News filter : CSV-based static table (A.6) + webhook dynamic (B.2)
-// - SMT / DXY correlation filter
-// - Max daily trades / daily loss / total DD halt logic
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.7] RISK MANAGEMENT
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// - Position sizing : risk_pct × equity / (sl_distance × pointvalue)
-// - SL max clamp per instrument (EURUSD 20p, XAUUSD 300p, etc.)
-// - TP1 / TP2 / BE / trailing
-// - Halt triggers : max_daily_loss_pct, max_total_dd_pct
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [A.8] PERFORMANCE REPORT
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// - Trade log export (CSV)
-// - WR, PF, Expectancy, Sharpe, Sortino
-// - Distribution of R
-// - Performance per KZ, per setup type, per weekday, per month
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [B.1] INDICATOR CONVERSION
-// [B.2] WEBHOOK JSON ALERTS
-// [B.3] CHART UI
-// [B.4] USER_GUIDE.md
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║                                                                          ║
-// ║   COMPILE-CHECK + HUD DASHBOARD                                          ║
-// ║   Touches all unused inputs to prevent "unused variable" warnings        ║
-// ║   Shows live state via HUD label on last bar                             ║
-// ║                                                                          ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-
-// Touch all boolean inputs (single long line — Pine v6 handles long lines fine)
-_bool_touch = use_po3_daily or use_po3_weekly or bos_body_close or require_alignment or show_pdh_pdl or show_pwh_pwl or show_pmh_pml or show_kz_hl or show_fvg or show_ifvg or show_bpr or show_ob or show_bb or ob_require_3_conditions or show_kz_bg or enable_smt or require_dxy_confirmation or breakeven_on_tp1 or filter_news or filter_kz_strict or filter_ny_lunch or filter_smt_mandatory or show_labels or show_dashboard
-
-// Touch all numeric inputs
-_num_touch = eq_tolerance_pips + relative_eq_tolerance_pips + fvg_age_max + smt_lookback + risk_pct + rr_target_1 + rr_target_2 + partial_tp1_pct + sl_buffer_pips + max_sl_pips_eurusd + max_sl_pips_gbpusd + max_sl_pips_xauusd + max_sl_points_nas100 + max_sl_points_sp500 + max_sl_points_us30 + max_sl_pct_btcusd + max_sl_pct_ethusd + max_daily_trades + max_daily_loss_pct + max_total_dd_pct + news_buffer_before_min + news_buffer_after_min
-
-// Touch string / symbol inputs
-_str_touch = kz_timezone + kz_asia_session + kz_london_session + kz_ny_am_session + kz_ny_lunch_session + kz_ny_pm_session + weekly_open_mode + kz_mode + alert_mode + smt_symbol_override + webhook_url_hint
-
-// Touch color inputs
-_col_touch = color.new(col_bull, 0)
-_col_touch2 = color.new(col_bear, 0)
-_col_touch3 = color.new(col_neutral, 0)
-_col_touch4 = color.new(col_premium, 0)
-_col_touch5 = color.new(col_discount, 0)
-_col_touch6 = color.new(col_equilibrium, 0)
-_col_touch7 = color.new(col_kz_london, 0)
-_col_touch8 = color.new(col_kz_ny_am, 0)
-_col_touch9 = color.new(col_kz_ny_pm, 0)
-_col_touch10 = color.new(col_kz_asia, 0)
-
-// Minimal HUD — tiny table bottom-left with PO3 + Bias only (mentor-clean)
-var table hud_tbl = table.new(
-     position     = position.bottom_left,
-     columns      = 2,
-     rows         = 4,
-     bgcolor      = color.new(#0F172A, 10),
-     border_color = color.new(#FFD700, 60),
-     border_width = 1,
-     frame_color  = color.new(#FFD700, 40),
-     frame_width  = 1)
+f_hud_pos(p) =>
+    p == "top_right"     ? position.top_right    :
+     p == "top_left"      ? position.top_left     :
+     p == "bottom_right"  ? position.bottom_right :
+     p == "bottom_left"   ? position.bottom_left  :
+     position.middle_right
 
 f_dir_col(d) =>
-    d == "bull" ? color.new(#10B981, 0) : d == "bear" ? color.new(#EF4444, 0) : color.new(#FBBF24, 0)
+    d == "BULL" ? color.new(#10B981, 0) : d == "BEAR" ? color.new(#EF4444, 0) : color.new(#94A3B8, 0)
 
-if barstate.islast and show_dashboard
-    table.cell(hud_tbl, 0, 0, "PO3 D",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
-    table.cell(hud_tbl, 1, 0, po3_daily_prev_dir,  text_color = f_dir_col(po3_daily_prev_dir),  text_size = size.tiny)
-    table.cell(hud_tbl, 0, 1, "PO3 W",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
-    table.cell(hud_tbl, 1, 1, po3_weekly_prev_dir, text_color = f_dir_col(po3_weekly_prev_dir), text_size = size.tiny)
-    table.cell(hud_tbl, 0, 2, "Phase",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
-    table.cell(hud_tbl, 1, 2, po3_current_phase,   text_color = color.white, text_size = size.tiny)
-    table.cell(hud_tbl, 0, 3, "Trend",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
-    table.cell(hud_tbl, 1, 3, structure_trend, text_color = f_dir_col(structure_trend), text_size = size.tiny)
+var table hud = table.new(
+     position     = f_hud_pos(hud_pos),
+     columns      = 2,
+     rows         = 6,
+     bgcolor      = color.new(#0F172A, 5),
+     border_color = color.new(#FFD700, 50),
+     border_width = 1,
+     frame_color  = color.new(#FFD700, 30),
+     frame_width  = 2)
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DIAGNOSTIC : guaranteed-visible test label — must appear on latest bar
-// ═══════════════════════════════════════════════════════════════════════════
-var label _debug_test_lbl = na
-if barstate.islast
-    label.delete(_debug_test_lbl)
-    _debug_test_lbl := label.new(
-         bar_index, high,
-         "TEST DEBUG — SI TU VOIS CA LES LABELS MARCHENT",
-         style = label.style_label_down,
-         color = color.red,
-         textcolor = color.white,
-         size = size.large)
+if show_hud and barstate.islast
+    table.cell(hud, 0, 0, "ICT v1",  text_color = color.white,             text_size = size.small, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 1, 0, syminfo.ticker, text_color = color.new(#FFD700, 0), text_size = size.small, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 0, 1, "PO3 D",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 1, po3_d_dir, text_color = f_dir_col(po3_d_dir),   text_size = size.tiny)
+    table.cell(hud, 0, 2, "PO3 W",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 2, po3_w_dir, text_color = f_dir_col(po3_w_dir),   text_size = size.tiny)
+    table.cell(hud, 0, 3, "Phase",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 3, po3_phase, text_color = color.white,             text_size = size.tiny)
+    table.cell(hud, 0, 4, "KZ",      text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 4, _current_kz, text_color = _in_any_kz ? color.new(#10B981, 0) : color.new(#94A3B8, 0), text_size = size.tiny)
+    table.cell(hud, 0, 5, "Trend",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 5, trend,     text_color = f_dir_col(trend),       text_size = size.tiny)
 
-// End of A.2.a ──────────────────────────────────────────────────────────────
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║   END OF ICT Strategy v1 (clean rebuild)                                ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
