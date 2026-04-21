@@ -1,4 +1,4 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
+﻿# ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  DEPLOY ONE-CLICK — Full A→Z deployment on AWS Windows                  ║
 # ║                                                                          ║
 # ║  Usage : right-click → Run with PowerShell (as Administrator)           ║

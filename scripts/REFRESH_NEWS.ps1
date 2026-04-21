@@ -1,4 +1,4 @@
-# REFRESH_NEWS.ps1 - Daily refresh of economic news calendar
+﻿# REFRESH_NEWS.ps1 - Daily refresh of economic news calendar
 $FRAMEWORK_DIR = "C:\Users\Administrator\ict-trading-framework"
 $LOG = "$FRAMEWORK_DIR\news_refresh.log"
 Set-Location $FRAMEWORK_DIR

@@ -1,4 +1,4 @@
-# WEEKLY_REPORT.ps1 - Weekly performance report Sunday 20:00
+﻿# WEEKLY_REPORT.ps1 - Weekly performance report Sunday 20:00
 $FRAMEWORK_DIR = "C:\Users\Administrator\ict-trading-framework"
 Set-Location $FRAMEWORK_DIR
 $env:PYTHONIOENCODING = "utf-8"

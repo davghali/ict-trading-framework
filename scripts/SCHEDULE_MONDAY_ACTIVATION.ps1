@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # SCHEDULE MONDAY ACTIVATION - Auto-activate Full Auto Monday morning
 # ============================================================
 # Usage (a executer UNE FOIS maintenant, ce weekend) :
