@@ -1,0 +1,262 @@
+// @version=6
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ICT BIAS ENGINE — Swings + Multi-TF Bias + PO3 per TF                   ║
+// ║  David Ghali x Claude                                                    ║
+// ║                                                                          ║
+// ║  WHAT IT DOES (focus total) :                                            ║
+// ║    • Swing H / Swing L detection (official ta.pivothigh / pivotlow)      ║
+// ║    • Biais Weekly  (BULL / BEAR / NEUT)                                  ║
+// ║    • Biais Daily                                                         ║
+// ║    • Biais H4 / H1 / M15                                                 ║
+// ║    • PO3 phase per UT (ACCUM / MANIP / DISTRIB ↑↓)                       ║
+// ║    • Opens per UT drawn (W / D / H4 / H1 / M15)                          ║
+// ║    • HUD table récap : tout aligné, lisible d'un coup d'œil              ║
+// ║                                                                          ║
+// ║  Indicator (pas strategy) — léger, rapide, zéro erreur.                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+indicator(
+     title            = "ICT Bias Engine — W/D/H4/H1/M15 + PO3",
+     shorttitle       = "ICT BIAS",
+     overlay          = true,
+     max_lines_count  = 500,
+     max_labels_count = 500,
+     max_boxes_count  = 100)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  INPUTS                                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+g_swing = "📐 Swings"
+swing_len   = input.int(3, "Swing length (pivot lookback)",
+     minval = 1, maxval = 20,
+     group = g_swing,
+     tooltip = "3 = ICT default. 5 = smoother. A swing H needs N bars higher on each side")
+show_swings = input.bool(true, "Show swing H/L markers", group = g_swing)
+
+g_bias = "🎯 Bias Engine"
+show_hud   = input.bool(true,  "Show HUD Bias table (top right)", group = g_bias)
+min_body_ratio = input.float(0.3, "Min body/range for confirmed bias",
+     minval = 0.1, maxval = 0.8, step = 0.05,
+     group = g_bias,
+     tooltip = "If candle body < this ratio of its range, bias = NEUT (indecision)")
+
+g_opens = "📍 Opens (par UT)"
+show_w_open   = input.bool(true,  "Weekly Open",  group = g_opens)
+show_d_open   = input.bool(true,  "Daily Open",   group = g_opens)
+show_h4_open  = input.bool(true,  "H4 Open",      group = g_opens)
+show_h1_open  = input.bool(true,  "H1 Open",      group = g_opens)
+show_m15_open = input.bool(false, "M15 Open",     group = g_opens,
+     tooltip = "Off par défaut : trop de bruit sur la plupart des UT")
+
+g_style = "🎨 Style"
+col_bull   = input.color(color.new(#10B981, 0), "BULL color",   group = g_style)
+col_bear   = input.color(color.new(#EF4444, 0), "BEAR color",   group = g_style)
+col_neut   = input.color(color.new(#94A3B8, 0), "NEUT color",   group = g_style)
+col_accum  = input.color(color.new(#FBBF24, 0), "ACCUM color",  group = g_style)
+col_manip  = input.color(color.new(#EC4899, 0), "MANIP color",  group = g_style)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  SWING POINTS (ta.pivothigh / pivotlow — official)                       ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+swing_h_val = ta.pivothigh(high, swing_len, swing_len)
+swing_l_val = ta.pivotlow(low, swing_len, swing_len)
+
+// Visual markers (tiny triangles, no repaint — natural lookback delay)
+plotshape(show_swings and not na(swing_h_val) ? swing_h_val : na,
+     title    = "Swing H",
+     style    = shape.triangledown,
+     location = location.absolute,
+     color    = color.new(col_bear, 30),
+     size     = size.tiny,
+     offset   = -swing_len)
+
+plotshape(show_swings and not na(swing_l_val) ? swing_l_val : na,
+     title    = "Swing L",
+     style    = shape.triangleup,
+     location = location.absolute,
+     color    = color.new(col_bull, 30),
+     size     = size.tiny,
+     offset   = -swing_len)
+
+// Track last confirmed swings for internal reference
+var float last_sh = na
+var float last_sl = na
+if not na(swing_h_val)
+    last_sh := swing_h_val
+if not na(swing_l_val)
+    last_sl := swing_l_val
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  FETCH HTF OHLC (single request.security per TF — efficient)             ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+[w_o, w_h, w_l, w_c]       = request.security(syminfo.tickerid, "W",   [open, high, low, close], lookahead = barmerge.lookahead_off)
+[d_o, d_h, d_l, d_c]       = request.security(syminfo.tickerid, "D",   [open, high, low, close], lookahead = barmerge.lookahead_off)
+[h4_o, h4_h, h4_l, h4_c]   = request.security(syminfo.tickerid, "240", [open, high, low, close], lookahead = barmerge.lookahead_off)
+[h1_o, h1_h, h1_l, h1_c]   = request.security(syminfo.tickerid, "60",  [open, high, low, close], lookahead = barmerge.lookahead_off)
+[m15_o, m15_h, m15_l, m15_c] = request.security(syminfo.tickerid, "15", [open, high, low, close], lookahead = barmerge.lookahead_off)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  BIAS LOGIC (Open-based ICT style)                                       ║
+// ║  Rule :                                                                  ║
+// ║    BULL if close > open AND body/range > min_ratio                       ║
+// ║    BEAR if close < open AND body/range > min_ratio                       ║
+// ║    NEUT otherwise (indecision / doji)                                    ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+f_bias(float o, float h, float l, float c, simple float min_ratio) =>
+    _body  = math.abs(c - o)
+    _range = h - l
+    _br    = _range > 0 ? _body / _range : 0.0
+    string _res = "NEUT"
+    if c > o and _br > min_ratio
+        _res := "BULL"
+    if c < o and _br > min_ratio
+        _res := "BEAR"
+    _res
+
+bias_w   = f_bias(w_o,   w_h,   w_l,   w_c,   min_body_ratio)
+bias_d   = f_bias(d_o,   d_h,   d_l,   d_c,   min_body_ratio)
+bias_h4  = f_bias(h4_o,  h4_h,  h4_l,  h4_c,  min_body_ratio)
+bias_h1  = f_bias(h1_o,  h1_h,  h1_l,  h1_c,  min_body_ratio)
+bias_m15 = f_bias(m15_o, m15_h, m15_l, m15_c, min_body_ratio)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  PO3 PHASE per UT                                                        ║
+// ║                                                                          ║
+// ║  Based on candle structure :                                             ║
+// ║    ACCUM     : body < 20% of range (consolidation)                       ║
+// ║    MANIP     : both wicks dominant vs body (false move potential)        ║
+// ║    DISTRIB↑  : bullish close AND lower wick > upper wick (manip low + distrib up) ║
+// ║    DISTRIB↓  : bearish close AND upper wick > lower wick (manip high + distrib down) ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+f_po3(float o, float h, float l, float c) =>
+    _range = h - l
+    _body  = math.abs(c - o)
+    _uw    = h - math.max(o, c)
+    _lw    = math.min(o, c) - l
+    string _phase = "—"
+    if _range == 0
+        _phase := "—"
+    else if _body / _range < 0.2
+        _phase := "ACCUM"
+    else if c > o and _lw > _uw * 1.3
+        _phase := "DISTRIB↑"
+    else if c < o and _uw > _lw * 1.3
+        _phase := "DISTRIB↓"
+    else if _uw > _body and _lw > _body
+        _phase := "MANIP"
+    else if c > o
+        _phase := "DISTRIB↑"
+    else if c < o
+        _phase := "DISTRIB↓"
+    _phase
+
+po3_w   = f_po3(w_o,   w_h,   w_l,   w_c)
+po3_d   = f_po3(d_o,   d_h,   d_l,   d_c)
+po3_h4  = f_po3(h4_o,  h4_h,  h4_l,  h4_c)
+po3_h1  = f_po3(h1_o,  h1_h,  h1_l,  h1_c)
+po3_m15 = f_po3(m15_o, m15_h, m15_l, m15_c)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  PLOT OPENS (guaranteed Pine v6 visibility via plot)                     ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+plot(show_w_open   ? w_o   : na, title = "W Open",   color = color.new(#9C27B0, 0), linewidth = 3, style = plot.style_linebr)
+plot(show_d_open   ? d_o   : na, title = "D Open",   color = color.new(#FF9800, 0), linewidth = 2, style = plot.style_linebr)
+plot(show_h4_open  ? h4_o  : na, title = "H4 Open",  color = color.new(#2196F3, 0), linewidth = 1, style = plot.style_linebr)
+plot(show_h1_open  ? h1_o  : na, title = "H1 Open",  color = color.new(#4CAF50, 0), linewidth = 1, style = plot.style_linebr)
+plot(show_m15_open ? m15_o : na, title = "M15 Open", color = color.new(#9E9E9E, 0), linewidth = 1, style = plot.style_linebr)
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  HUD TABLE (top-right, solid bg, Pine-reliable)                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+f_bias_col(string b) =>
+    b == "BULL" ? col_bull : b == "BEAR" ? col_bear : col_neut
+
+f_po3_col(string p) =>
+    p == "ACCUM"    ? col_accum :
+     p == "MANIP"    ? col_manip :
+     p == "DISTRIB↑" ? col_bull :
+     p == "DISTRIB↓" ? col_bear :
+     col_neut
+
+var table hud = table.new(
+     position     = position.top_right,
+     columns      = 3,
+     rows         = 8,
+     bgcolor      = color.new(#0F172A, 0),
+     border_color = color.new(#FFD700, 40),
+     border_width = 1,
+     frame_color  = color.new(#FFD700, 20),
+     frame_width  = 2)
+
+if show_hud and barstate.islast
+    // Header row
+    table.cell(hud, 0, 0, "TF",   text_color = color.white, text_size = size.small, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 1, 0, "BIAS", text_color = color.white, text_size = size.small, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 2, 0, "PO3",  text_color = color.white, text_size = size.small, bgcolor = color.new(#1E293B, 0))
+
+    // Row W
+    table.cell(hud, 0, 1, "W",    text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 1, bias_w, text_color = f_bias_col(bias_w),     text_size = size.tiny)
+    table.cell(hud, 2, 1, po3_w,  text_color = f_po3_col(po3_w),       text_size = size.tiny)
+
+    // Row D
+    table.cell(hud, 0, 2, "D",    text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 2, bias_d, text_color = f_bias_col(bias_d),     text_size = size.tiny)
+    table.cell(hud, 2, 2, po3_d,  text_color = f_po3_col(po3_d),       text_size = size.tiny)
+
+    // Row H4
+    table.cell(hud, 0, 3, "H4",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 3, bias_h4, text_color = f_bias_col(bias_h4),   text_size = size.tiny)
+    table.cell(hud, 2, 3, po3_h4,  text_color = f_po3_col(po3_h4),     text_size = size.tiny)
+
+    // Row H1
+    table.cell(hud, 0, 4, "H1",   text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 4, bias_h1, text_color = f_bias_col(bias_h1),   text_size = size.tiny)
+    table.cell(hud, 2, 4, po3_h1,  text_color = f_po3_col(po3_h1),     text_size = size.tiny)
+
+    // Row M15
+    table.cell(hud, 0, 5, "M15",  text_color = color.new(#94A3B8, 10), text_size = size.tiny)
+    table.cell(hud, 1, 5, bias_m15, text_color = f_bias_col(bias_m15), text_size = size.tiny)
+    table.cell(hud, 2, 5, po3_m15,  text_color = f_po3_col(po3_m15),   text_size = size.tiny)
+
+    // Alignment row : if all HTF aligned → strong directional bias
+    _all_bull = bias_w == "BULL" and bias_d == "BULL" and bias_h4 == "BULL"
+    _all_bear = bias_w == "BEAR" and bias_d == "BEAR" and bias_h4 == "BEAR"
+    _align_txt = _all_bull ? "ALL BULL ↑" : _all_bear ? "ALL BEAR ↓" : "MIXED"
+    _align_col = _all_bull ? col_bull : _all_bear ? col_bear : col_neut
+
+    table.cell(hud, 0, 6, "ALIGN",    text_color = color.white, text_size = size.tiny, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 1, 6, _align_txt, text_color = _align_col,  text_size = size.tiny, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 2, 6, "",         bgcolor = color.new(#1E293B, 0))
+
+    // Current price vs opens : tells user where we are relative to each open
+    _vs_w   = close > w_o   ? "↑" : close < w_o   ? "↓" : "="
+    _vs_d   = close > d_o   ? "↑" : close < d_o   ? "↓" : "="
+    _vs_h4  = close > h4_o  ? "↑" : close < h4_o  ? "↓" : "="
+    _vs_h1  = close > h1_o  ? "↑" : close < h1_o  ? "↓" : "="
+    _vs_m15 = close > m15_o ? "↑" : close < m15_o ? "↓" : "="
+    _vs_txt = _vs_w + _vs_d + _vs_h4 + _vs_h1 + _vs_m15
+
+    table.cell(hud, 0, 7, "vs O",   text_color = color.white,  text_size = size.tiny, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 1, 7, _vs_txt,  text_color = color.white,  text_size = size.tiny, bgcolor = color.new(#1E293B, 0))
+    table.cell(hud, 2, 7, "W·D·H4·H1·M15", text_color = color.new(#94A3B8, 20), text_size = size.tiny, bgcolor = color.new(#1E293B, 0))
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ALERTS                                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// Alert when all HTF align bullish
+alertcondition(bias_w == "BULL" and bias_d == "BULL" and bias_h4 == "BULL" and bias_h4 != bias_h4[1], "ALL HTF BULL aligned", "ICT Bias : W+D+H4 all BULL aligned on {{ticker}}")
+alertcondition(bias_w == "BEAR" and bias_d == "BEAR" and bias_h4 == "BEAR" and bias_h4 != bias_h4[1], "ALL HTF BEAR aligned", "ICT Bias : W+D+H4 all BEAR aligned on {{ticker}}")
+
+// Alert on PO3 phase transition
+alertcondition(po3_d != po3_d[1] and not na(po3_d[1]), "Daily PO3 phase change", "ICT Bias : Daily PO3 changed to {{plot('po3_d')}} on {{ticker}}")
+
+// End of ICT Bias Engine ────────────────────────────────────────────────────
