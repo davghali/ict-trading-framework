@@ -1,0 +1,76 @@
+{
+  "_config_version": "v2-ml-production-20260421",
+  "_description": "ML-powered bot with threshold 0.45 - trained on 4120 samples, expected WR 51.8% PF 2.35 Ann +82%",
+
+  "firm": "ftmo",
+  "variant": "classic_challenge",
+  "account_balance": 10000.0,
+  "risk_per_trade_pct": 0.5,
+
+  "_assets_comment": "Final production config - 11 assets across H1 and D1 (tested in backtest)",
+  "assets_h1": [
+    "XAUUSD",
+    "XAGUSD",
+    "BTCUSD",
+    "NAS100",
+    "SPX500",
+    "DOW30"
+  ],
+  "assets_d1": [
+    "EURUSD",
+    "GBPUSD",
+    "AUDUSD",
+    "USDCAD",
+    "ETHUSD"
+  ],
+
+  "_ml_config": "Machine Learning production model - threshold 0.45 is Pareto-optimal per backtest sweep",
+  "use_ml_classifier": true,
+  "ml_model_path": "models/production_model.pkl",
+  "ml_threshold": 0.45,
+  "ml_min_probability": 0.45,
+
+  "_exit_config": "Partial exits : 50% at TP1 (2R), 50% at TP2 (3R), BE after TP1",
+  "use_multi_partial_exits": true,
+  "partial_exit_levels": [
+    {"at_r": 2.0, "close_pct": 0.50},
+    {"at_r": 3.0, "close_pct": 0.50}
+  ],
+  "breakeven_after_tp1": true,
+
+  "_filters": "News blackout + correlation limits",
+  "filter_news": true,
+  "news_buffer_before_min": 30,
+  "news_buffer_after_min": 30,
+  "max_correlated_positions": 2,
+
+  "_auto_exec": "Auto-execution via MT5",
+  "auto_execute": true,
+  "auto_max_concurrent_positions": 4,
+  "auto_max_positions_per_symbol": 1,
+  "auto_daily_loss_cap_pct": 3.5,
+  "auto_min_balance_pct": 90.0,
+  "auto_allow_weekends": false,
+
+  "_safety_net": "FTMO Swing 10k protection",
+  "max_daily_loss_pct": 3.5,
+  "max_total_dd_pct": 8.0,
+  "max_trades_per_day": 8,
+  "friday_cutoff_hour_utc": 16,
+
+  "_streamlit": "DISABLED per user request 2026-04-21",
+  "enable_streamlit": false,
+
+  "_dashboard": "Dashboard via Telegram bot only",
+  "enable_telegram": true,
+
+  "_expected_performance": {
+    "trades_per_week": 3.6,
+    "trades_per_month": 15.3,
+    "win_rate_pct": 51.8,
+    "expectancy_R": 0.65,
+    "profit_factor": 2.35,
+    "annualized_pct": 82,
+    "max_dd_pct": -3.9
+  }
+}

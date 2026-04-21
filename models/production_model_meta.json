@@ -1,0 +1,88 @@
+{
+  "threshold": 0.45,
+  "trained_at": "2026-04-21T20:37:41.228887",
+  "training_samples": 4120,
+  "in_sample_auc": 0.8832494928602225,
+  "top_features": [
+    {
+      "feature": "pct_from_20h_high",
+      "importance": 0.13691450105801214
+    },
+    {
+      "feature": "distance_to_entry",
+      "importance": 0.13092911165553556
+    },
+    {
+      "feature": "volatility_10",
+      "importance": 0.08495200030375126
+    },
+    {
+      "feature": "pct_from_20h_low",
+      "importance": 0.08239175466217842
+    },
+    {
+      "feature": "momentum_10",
+      "importance": 0.07981159857081055
+    },
+    {
+      "feature": "atr",
+      "importance": 0.06623028748315832
+    },
+    {
+      "feature": "fvg_impulsion",
+      "importance": 0.06593449234755736
+    },
+    {
+      "feature": "volume_ratio",
+      "importance": 0.05601314351444913
+    },
+    {
+      "feature": "fvg_size_atr",
+      "importance": 0.05594954554895143
+    },
+    {
+      "feature": "dxy_momentum",
+      "importance": 0.05000745953003571
+    },
+    {
+      "feature": "fvg_age_bars",
+      "importance": 0.04864615934667477
+    },
+    {
+      "feature": "fvg_side_long",
+      "importance": 0.04816477671725393
+    },
+    {
+      "feature": "atr_ratio",
+      "importance": 0.03614882769229916
+    },
+    {
+      "feature": "day_of_week",
+      "importance": 0.01428806334809495
+    },
+    {
+      "feature": "htf_aligned",
+      "importance": 0.011935504245317896
+    }
+  ],
+  "assets": [
+    "XAUUSD_1h",
+    "XAGUSD_1h",
+    "BTCUSD_1h",
+    "NAS100_1h",
+    "SPX500_1h",
+    "DOW30_1h",
+    "EURUSD_1d",
+    "GBPUSD_1d",
+    "AUDUSD_1d",
+    "USDCAD_1d",
+    "ETHUSD_1d"
+  ],
+  "expected_performance": {
+    "trades_per_week": 3.6,
+    "win_rate": 51.8,
+    "expectancy_R": 0.65,
+    "annualized_pct": 82,
+    "max_dd_pct": -3.9
+  }
+}
