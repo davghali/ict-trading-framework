@@ -153,22 +153,21 @@ _current_kz = _in_asia ? "Asia" : _in_london ? "London" : _in_ny_am ? "NY AM" : 
 // ║   POWER OF THREE (PO3) — previous daily / weekly                        ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
-[_d_prev_h, _d_prev_l] = [pdh_val, pdl_val]
-[_w_prev_h, _w_prev_l] = [pwh_val, pwl_val]
-
-_d_range = _d_prev_h - _d_prev_l
+// Daily PO3 retrospective
+_d_range = pdh_val - pdl_val
 _d_body  = math.abs(d_prev_c - d_prev_o)
-_d_uw    = _d_prev_h - math.max(d_prev_o, d_prev_c)
-_d_lw    = math.min(d_prev_o, d_prev_c) - _d_prev_l
+_d_uw    = pdh_val - math.max(d_prev_o, d_prev_c)
+_d_lw    = math.min(d_prev_o, d_prev_c) - pdl_val
 
 po3_d_bull = d_prev_c > d_prev_o and _d_lw > _d_uw * 1.5 and _d_body > _d_range * 0.4
 po3_d_bear = d_prev_c < d_prev_o and _d_uw > _d_lw * 1.5 and _d_body > _d_range * 0.4
 po3_d_dir  = po3_d_bull ? "BULL" : po3_d_bear ? "BEAR" : "NEUT"
 
-_w_range = _w_prev_h - _w_prev_l
+// Weekly PO3 retrospective
+_w_range = pwh_val - pwl_val
 _w_body  = math.abs(w_prev_c - w_prev_o)
-_w_uw    = _w_prev_h - math.max(w_prev_o, w_prev_c)
-_w_lw    = math.min(w_prev_o, w_prev_c) - _w_prev_l
+_w_uw    = pwh_val - math.max(w_prev_o, w_prev_c)
+_w_lw    = math.min(w_prev_o, w_prev_c) - pwl_val
 
 po3_w_bull = w_prev_c > w_prev_o and _w_lw > _w_uw * 1.5 and _w_body > _w_range * 0.4
 po3_w_bear = w_prev_c < w_prev_o and _w_uw > _w_lw * 1.5 and _w_body > _w_range * 0.4
