@@ -152,7 +152,8 @@ Write-Header "STEP 5 / 10 — Vérifier ML Model"
 
 $model_path = Join-Path $FRAMEWORK_DIR "models\production_model.pkl"
 if (Test-Path $model_path) {
-    $model_check = python -c "import pickle; m = pickle.load(open(r'$model_path', 'rb')); print(f'Threshold: {m[\"threshold\"]} | Samples: {m[\"training_samples\"]} | AUC: {m[\"in_sample_auc\"]:.3f}')" 2>&1
+    $model_check_script = Join-Path $FRAMEWORK_DIR "scripts\_check_model.py"
+    $model_check = python $model_check_script $model_path 2>&1
     Write-OK "ML Model OK : $model_check"
 } else {
     Write-Warn "Model .pkl missing - re-training from production assets..."
@@ -208,21 +209,10 @@ if ($first_account.login -eq 0 -or $first_account.password -eq "METTRE_TRADING_P
     exit 1
 }
 
-# Test MT5 connection
-$mt5_test = python -c @"
-import MetaTrader5 as mt5
-import json
-with open(r'$mt5_json') as f:
-    data = json.load(f)
-acc = data['accounts'][0]
-ok = mt5.initialize(login=int(acc['login']), password=acc['password'], server=acc['server'])
-if ok:
-    info = mt5.account_info()
-    print(f'Connected {info.login} balance=\${info.balance:.2f}')
-else:
-    print(f'FAIL: {mt5.last_error()}')
-mt5.shutdown()
-"@ 2>&1
+# Test MT5 connection (helper script)
+$mt5_test_script = Join-Path $FRAMEWORK_DIR "scripts\_test_mt5.py"
+$env:MT5_JSON = $mt5_json
+$mt5_test = python $mt5_test_script 2>&1
 
 if ($mt5_test -match "Connected") {
     Write-OK "MT5 : $mt5_test"
@@ -242,17 +232,8 @@ Write-Header "STEP 7 / 10 — Test Telegram"
 
 $env_file = Join-Path $FRAMEWORK_DIR ".env"
 if (Test-Path $env_file) {
-    $tg_test = python -c @"
-from src.telegram_bot.bot import TelegramBot
-b = TelegramBot()
-if b.enabled:
-    if b.test_connection():
-        print('Telegram OK')
-    else:
-        print('Telegram : token/chat_id invalide')
-else:
-    print('Telegram : token/chat_id manquants dans .env')
-"@ 2>&1
+    $tg_test_script = Join-Path $FRAMEWORK_DIR "scripts\_test_telegram.py"
+    $tg_test = python $tg_test_script 2>&1
     if ($tg_test -match "OK") {
         Write-OK "Telegram : $tg_test"
     } else {
@@ -360,22 +341,8 @@ Write-Host "🎯 Attends le prochain killzone (London 07:00 UTC ou NY AM 13:30 U
 Write-Host ""
 
 # Send confirmation via Telegram
-python -c @"
-try:
-    from src.telegram_bot.bot import TelegramBot
-    b = TelegramBot()
-    if b.enabled:
-        b.send_text('🚀 *BOT ML v2 DEPLOYED*\n\n'
-                     '✅ Threshold 0.45\n'
-                     '✅ 11 assets actifs\n'
-                     '✅ Auto-restart ON\n'
-                     '✅ Streamlit OFF\n\n'
-                     'Expected : WR 51.8% · PF 2.35 · +82%/an\n'
-                     'Commands : /status /pause /positions /close_all')
-        print('Telegram confirmation sent')
-except Exception as e:
-    print(f'Telegram confirmation failed: {e}')
-"@ 2>&1 | Write-Host
+$tg_confirm_script = Join-Path $FRAMEWORK_DIR "scripts\_send_deploy_confirmation.py"
+python $tg_confirm_script 2>&1 | Write-Host
 
 Write-Host ""
 Write-Host "🏆 SYSTEM LIVE" -ForegroundColor Green
