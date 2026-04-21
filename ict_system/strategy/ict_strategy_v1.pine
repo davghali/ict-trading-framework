@@ -400,23 +400,31 @@ if new_week_start and barstate.isconfirmed
          width  = 1,
          extend = extend.right)
 
-// Right-edge labels for Midnight / Weekly opens (var pattern)
-var label midnight_lbl = label.new(na, na, "00:00",
-     style     = label.style_label_left,
-     color     = color.new(#FFAB40, 25),
-     textcolor = color.white,
-     size      = size.small)
-var label weekly_lbl = label.new(na, na, "W",
-     style     = label.style_label_left,
-     color     = color.new(#66BB6A, 25),
-     textcolor = color.white,
-     size      = size.small)
+// Right-edge labels for Midnight / Weekly opens (lazy init)
+var label midnight_lbl = na
+var label weekly_lbl   = na
 
 if barstate.islast
     if not na(midnight_open)
-        label.set_xy(midnight_lbl, bar_index + 3, midnight_open)
+        if na(midnight_lbl)
+            midnight_lbl := label.new(
+                 x = bar_index + 3, y = midnight_open, text = "00:00",
+                 style     = label.style_label_left,
+                 color     = color.new(#FFAB40, 20),
+                 textcolor = color.white,
+                 size      = size.small)
+        else
+            label.set_xy(midnight_lbl, bar_index + 3, midnight_open)
     if not na(weekly_open)
-        label.set_xy(weekly_lbl, bar_index + 3, weekly_open)
+        if na(weekly_lbl)
+            weekly_lbl := label.new(
+                 x = bar_index + 3, y = weekly_open, text = "W",
+                 style     = label.style_label_left,
+                 color     = color.new(#66BB6A, 20),
+                 textcolor = color.white,
+                 size      = size.small)
+        else
+            label.set_xy(weekly_lbl, bar_index + 3, weekly_open)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [A.2.a.3] KILLZONES BACKGROUNDS  (§ 3.7)
@@ -850,14 +858,29 @@ new_day_liq   = ta.change(pdh_val) != 0
 new_week_liq  = ta.change(pwh_val) != 0
 new_month_liq = ta.change(pmh_val) != 0
 
-// Robust label pattern : create once, update position + text each bar
-// Using label.set_* methods instead of delete/recreate (more reliable in Pine v6)
+// Simple pattern : lazy-init on first valid barstate.islast, update via label.set_*
+
+// Helper : create or update a label
+f_update_label(label_ref, x, y, txt, bg, txtcol) =>
+    label result = na
+    if na(label_ref)
+        result := label.new(x = x, y = y, text = txt,
+             style = label.style_label_left,
+             color = bg,
+             textcolor = txtcol,
+             size = size.small,
+             textalign = text.align_left)
+    else
+        label.set_xy(label_ref, x, y)
+        label.set_text(label_ref, txt)
+        result := label_ref
+    result
 
 // ──── PDH / PDL ────
 var line  pdh_line = na
 var line  pdl_line = na
-var label pdh_lbl  = label.new(na, na, "PDH", style = label.style_label_left, color = color.new(#5C6BC0, 25), textcolor = color.white, size = size.small)
-var label pdl_lbl  = label.new(na, na, "PDL", style = label.style_label_left, color = color.new(#5C6BC0, 25), textcolor = color.white, size = size.small)
+var label pdh_lbl  = na
+var label pdl_lbl  = na
 
 if show_pdh_pdl and new_day_liq and barstate.isconfirmed
     line.delete(pdh_line)
@@ -867,18 +890,17 @@ if show_pdh_pdl and new_day_liq and barstate.isconfirmed
     pdl_line := line.new(bar_index, pdl_val, bar_index + 1, pdl_val,
          color = _col_pd_line, style = line.style_dashed, width = 1, extend = extend.right)
 
-// Move labels to right edge every bar (cheap op)
 if show_pdh_pdl and barstate.islast
     if not na(pdh_val)
-        label.set_xy(pdh_lbl, bar_index + 3, pdh_val)
+        pdh_lbl := f_update_label(pdh_lbl, bar_index + 3, pdh_val, "PDH", color.new(#5C6BC0, 20), color.white)
     if not na(pdl_val)
-        label.set_xy(pdl_lbl, bar_index + 3, pdl_val)
+        pdl_lbl := f_update_label(pdl_lbl, bar_index + 3, pdl_val, "PDL", color.new(#5C6BC0, 20), color.white)
 
 // ──── PWH / PWL ────
 var line  pwh_line = na
 var line  pwl_line = na
-var label pwh_lbl  = label.new(na, na, "PWH", style = label.style_label_left, color = color.new(#26C6DA, 25), textcolor = color.white, size = size.small)
-var label pwl_lbl  = label.new(na, na, "PWL", style = label.style_label_left, color = color.new(#26C6DA, 25), textcolor = color.white, size = size.small)
+var label pwh_lbl  = na
+var label pwl_lbl  = na
 
 if show_pwh_pwl and new_week_liq and barstate.isconfirmed
     line.delete(pwh_line)
@@ -890,15 +912,15 @@ if show_pwh_pwl and new_week_liq and barstate.isconfirmed
 
 if show_pwh_pwl and barstate.islast
     if not na(pwh_val)
-        label.set_xy(pwh_lbl, bar_index + 3, pwh_val)
+        pwh_lbl := f_update_label(pwh_lbl, bar_index + 3, pwh_val, "PWH", color.new(#26C6DA, 20), color.white)
     if not na(pwl_val)
-        label.set_xy(pwl_lbl, bar_index + 3, pwl_val)
+        pwl_lbl := f_update_label(pwl_lbl, bar_index + 3, pwl_val, "PWL", color.new(#26C6DA, 20), color.white)
 
 // ──── PMH / PML ────
 var line  pmh_line = na
 var line  pml_line = na
-var label pmh_lbl  = label.new(na, na, "PMH", style = label.style_label_left, color = color.new(#66BB6A, 25), textcolor = color.white, size = size.small)
-var label pml_lbl  = label.new(na, na, "PML", style = label.style_label_left, color = color.new(#66BB6A, 25), textcolor = color.white, size = size.small)
+var label pmh_lbl  = na
+var label pml_lbl  = na
 
 if show_pmh_pml and new_month_liq and barstate.isconfirmed
     line.delete(pmh_line)
@@ -910,9 +932,9 @@ if show_pmh_pml and new_month_liq and barstate.isconfirmed
 
 if show_pmh_pml and barstate.islast
     if not na(pmh_val)
-        label.set_xy(pmh_lbl, bar_index + 3, pmh_val)
+        pmh_lbl := f_update_label(pmh_lbl, bar_index + 3, pmh_val, "PMH", color.new(#66BB6A, 20), color.white)
     if not na(pml_val)
-        label.set_xy(pml_lbl, bar_index + 3, pml_val)
+        pml_lbl := f_update_label(pml_lbl, bar_index + 3, pml_val, "PML", color.new(#66BB6A, 20), color.white)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  [A.2.c] MARKET STRUCTURE — BOS / CHoCH / CISD / MSS  (§ 3.5)           ║
