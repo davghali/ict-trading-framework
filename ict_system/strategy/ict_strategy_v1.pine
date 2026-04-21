@@ -1270,12 +1270,11 @@ var label _debug_test_lbl = na
 if barstate.islast
     label.delete(_debug_test_lbl)
     _debug_test_lbl := label.new(
-         x = bar_index, y = high,
-         text = "⚠️ TEST DEBUG — SI TU VOIS ÇA LES LABELS MARCHENT",
+         bar_index, high,
+         "TEST DEBUG — SI TU VOIS CA LES LABELS MARCHENT",
          style = label.style_label_down,
-         color = color.new(color.red, 0),
+         color = color.red,
          textcolor = color.white,
-         size = size.large,
-         yloc = yloc.abovebar)
+         size = size.large)
 
 // End of A.2.a ──────────────────────────────────────────────────────────────
