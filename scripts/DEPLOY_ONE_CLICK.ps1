@@ -17,7 +17,10 @@
 # ║   10. Send Telegram confirmation                                         ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-$ErrorActionPreference = "Stop"
+# ErrorActionPreference is intentionally "Continue" - native commands like git
+# write progress info to stderr on success, which "Stop" converts to exceptions.
+# We check $LASTEXITCODE explicitly after each critical external call.
+$ErrorActionPreference = "Continue"
 $FRAMEWORK_DIR = "C:\Users\Administrator\ict-trading-framework"
 
 function Write-Header($msg) {
@@ -52,38 +55,52 @@ cd $FRAMEWORK_DIR
 Write-OK "Directory : $FRAMEWORK_DIR"
 
 # Check Python
-try {
-    $py_version = python --version 2>&1
-    Write-OK "Python : $py_version"
-} catch {
+$py_version = & python --version 2>&1
+if ($LASTEXITCODE -ne 0) {
     Write-Err "Python non trouvé. Installer Python 3.9+ d'abord."
     exit 1
 }
+Write-OK "Python : $py_version"
 
 # Check git
-try {
-    $git_version = git --version 2>&1
-    Write-OK "Git : $git_version"
-} catch {
+$git_version = & git --version 2>&1
+if ($LASTEXITCODE -ne 0) {
     Write-Err "Git non trouvé. Installer Git d'abord."
     exit 1
 }
+Write-OK "Git : $git_version"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 2 : Pull latest code
 # ═══════════════════════════════════════════════════════════════════════════
 Write-Header "STEP 2 / 10 — Git Pull dernière version"
 
-try {
-    git fetch origin 2>&1 | Out-Null
-    $current_branch = git rev-parse --abbrev-ref HEAD
-    git pull origin $current_branch 2>&1 | ForEach-Object { Write-Host "  $_" }
-    $last_commit = git log -1 --oneline
-    Write-OK "Latest commit : $last_commit"
-} catch {
-    Write-Err "Git pull failed : $_"
+# git writes to stderr on success - do NOT try/catch native commands.
+# Check $LASTEXITCODE after each git call instead.
+
+$fetch_output = & git fetch origin 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Git fetch failed (exit $LASTEXITCODE) :"
+    $fetch_output | ForEach-Object { Write-Host "  $_" }
     exit 1
 }
+
+$current_branch = (& git rev-parse --abbrev-ref HEAD).Trim()
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Git rev-parse failed"
+    exit 1
+}
+
+$pull_output = & git pull origin $current_branch 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Git pull failed (exit $LASTEXITCODE) :"
+    $pull_output | ForEach-Object { Write-Host "  $_" }
+    exit 1
+}
+$pull_output | ForEach-Object { Write-Host "  $_" }
+
+$last_commit = (& git log -1 --oneline).Trim()
+Write-OK "Latest commit : $last_commit"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 3 : Install Python dependencies
@@ -94,14 +111,14 @@ python -m pip install --upgrade pip 2>&1 | Out-Null
 python -m pip install -r requirements.txt 2>&1 | Out-Null
 python -m pip install scikit-learn MetaTrader5 2>&1 | Out-Null
 
-# Verify critical imports
+# Verify critical imports (check $LASTEXITCODE on native python, not try/catch)
 $imports_ok = $true
 $critical = @("pandas", "numpy", "sklearn", "MetaTrader5")
 foreach ($pkg in $critical) {
-    try {
-        python -c "import $pkg" 2>&1 | Out-Null
+    & python -c "import $pkg" 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
         Write-OK "import $pkg"
-    } catch {
+    } else {
         Write-Warn "import $pkg failed"
         if ($pkg -eq "MetaTrader5") {
             $imports_ok = $false
@@ -153,8 +170,13 @@ Write-Header "STEP 5 / 10 — Vérifier ML Model"
 $model_path = Join-Path $FRAMEWORK_DIR "models\production_model.pkl"
 if (Test-Path $model_path) {
     $model_check_script = Join-Path $FRAMEWORK_DIR "scripts\_check_model.py"
-    $model_check = python $model_check_script $model_path 2>&1
-    Write-OK "ML Model OK : $model_check"
+    $model_check = & python $model_check_script $model_path 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-OK "ML Model OK : $model_check"
+    } else {
+        Write-Err "ML Model check failed : $model_check"
+        exit 1
+    }
 } else {
     Write-Warn "Model .pkl missing - re-training from production assets..."
     python scripts\train_production_model.py 2>&1 | Out-Null
