@@ -411,16 +411,16 @@ if barstate.islast
              bar_index + 5, midnight_open,
              "00:00",
              style     = label.style_label_left,
-             color     = color.new(#0F172A, 100),
-             textcolor = color.new(#FFAB40, 0),
+             color     = color.new(#FFAB40, 25),
+             textcolor = color.white,
              size      = size.small)
     if not na(weekly_open)
         weekly_lbl := label.new(
              bar_index + 5, weekly_open,
              "W",
              style     = label.style_label_left,
-             color     = color.new(#0F172A, 100),
-             textcolor = color.new(#66BB6A, 0),
+             color     = color.new(#66BB6A, 25),
+             textcolor = color.white,
              size      = size.small)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -874,10 +874,10 @@ if show_pdh_pdl and barstate.islast
     label.delete(pdl_lbl)
     if not na(pdh_val)
         pdh_lbl := label.new(bar_index + 5, pdh_val, "PDH",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#5C6BC0, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#5C6BC0, 25), textcolor = color.white, size = size.small)
     if not na(pdl_val)
         pdl_lbl := label.new(bar_index + 5, pdl_val, "PDL",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#5C6BC0, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#5C6BC0, 25), textcolor = color.white, size = size.small)
 
 // ──── PWH / PWL ────
 var line  pwh_line = na
@@ -898,10 +898,10 @@ if show_pwh_pwl and barstate.islast
     label.delete(pwl_lbl)
     if not na(pwh_val)
         pwh_lbl := label.new(bar_index + 5, pwh_val, "PWH",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#26C6DA, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#26C6DA, 25), textcolor = color.white, size = size.small)
     if not na(pwl_val)
         pwl_lbl := label.new(bar_index + 5, pwl_val, "PWL",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#26C6DA, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#26C6DA, 25), textcolor = color.white, size = size.small)
 
 // ──── PMH / PML ────
 var line  pmh_line = na
@@ -922,10 +922,10 @@ if show_pmh_pml and barstate.islast
     label.delete(pml_lbl)
     if not na(pmh_val)
         pmh_lbl := label.new(bar_index + 5, pmh_val, "PMH",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#66BB6A, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#66BB6A, 25), textcolor = color.white, size = size.small)
     if not na(pml_val)
         pml_lbl := label.new(bar_index + 5, pml_val, "PML",
-             style = label.style_label_left, color = color.new(#0F172A, 100), textcolor = color.new(#66BB6A, 0), size = size.small)
+             style = label.style_label_left, color = color.new(#66BB6A, 25), textcolor = color.white, size = size.small)
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  [A.2.c] MARKET STRUCTURE — BOS / CHoCH / CISD / MSS  (§ 3.5)           ║
@@ -1235,11 +1235,11 @@ var table hud_tbl = table.new(
      position     = position.top_right,
      columns      = 2,
      rows         = 12,
-     bgcolor      = color.new(#0F172A, 15),
-     border_color = color.new(#FFD700, 70),
+     bgcolor      = color.new(#0F172A, 0),
+     border_color = color.new(#FFD700, 40),
      border_width = 1,
-     frame_color  = color.new(#FFD700, 50),
-     frame_width  = 1)
+     frame_color  = color.new(#FFD700, 20),
+     frame_width  = 2)
 
 // Color helpers for table cells
 _col_label = color.new(#94A3B8, 20)   // muted grey-blue for labels
