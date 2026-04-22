@@ -289,7 +289,12 @@ def run():
     settings = UserSettings.load()
     settings_dict = _load_settings_dict()
     bot = TelegramBot()
-    enhancer = CyborgEnhancer(cross_min_score=0.4, multi_tf_min_score=0.55)
+    # Seuils assouplis pour permettre aux signaux de passer en prod.
+    # Cross-asset filter retourne souvent score=0.00 (bug ou marché sans
+    # confirmation) -> mettre à 0.0 désactive effectivement ce filtre.
+    # Multi-TF min 0.3 (au lieu de 0.55) = plus permissif sur alignement HTF.
+    # L'ML classifier (threshold 0.45) reste la couche de filtrage principale.
+    enhancer = CyborgEnhancer(cross_min_score=0.0, multi_tf_min_score=0.3)
     regime_detector = RegimeDetector()
     fe = FeatureEngine()
 
