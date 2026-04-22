@@ -169,6 +169,53 @@ class MT5Executor:
 
         price = entry_price or (tick.ask if side == "long" else tick.bid)
 
+        # ═══ Validate + auto-fix stops for MT5 ═══
+        # Common errors :
+        # - SL/TP on wrong side of price (signal bug or data mismatch yfinance vs broker)
+        # - SL/TP too close to price (below broker's stop_level / freeze_level)
+        # - SL/TP with wrong decimal precision (broker digits)
+        digits = sym_info.digits
+        point = sym_info.point
+        stops_level = getattr(sym_info, "trade_stops_level", 0) or 0
+        min_stop_distance = stops_level * point
+        # Safety buffer : always keep at least 10 points beyond broker minimum
+        safe_buffer = max(min_stop_distance + 10 * point, 20 * point)
+
+        current_price = tick.ask if side == "long" else tick.bid
+        orig_sl, orig_tp = stop_loss, take_profit
+
+        if side == "long":
+            # LONG : SL < price < TP
+            if stop_loss >= current_price:
+                stop_loss = current_price - safe_buffer
+                log.warning(f"[STOPS-FIX] LONG SL {orig_sl} >= price {current_price}, adjusted to {stop_loss}")
+            elif current_price - stop_loss < safe_buffer:
+                stop_loss = current_price - safe_buffer
+            if take_profit <= current_price:
+                take_profit = current_price + safe_buffer * 2
+                log.warning(f"[STOPS-FIX] LONG TP {orig_tp} <= price {current_price}, adjusted to {take_profit}")
+            elif take_profit - current_price < safe_buffer:
+                take_profit = current_price + safe_buffer
+        else:
+            # SHORT : TP < price < SL
+            if stop_loss <= current_price:
+                stop_loss = current_price + safe_buffer
+                log.warning(f"[STOPS-FIX] SHORT SL {orig_sl} <= price {current_price}, adjusted to {stop_loss}")
+            elif stop_loss - current_price < safe_buffer:
+                stop_loss = current_price + safe_buffer
+            if take_profit >= current_price:
+                take_profit = current_price - safe_buffer * 2
+                log.warning(f"[STOPS-FIX] SHORT TP {orig_tp} >= price {current_price}, adjusted to {take_profit}")
+            elif current_price - take_profit < safe_buffer:
+                take_profit = current_price - safe_buffer
+
+        # Round to broker's decimal precision
+        price = round(float(price), digits)
+        stop_loss = round(float(stop_loss), digits)
+        take_profit = round(float(take_profit), digits)
+
+        log.info(f"[ORDER] {side.upper()} {mt5_symbol} @ {price} | SL {stop_loss} | TP {take_profit} | lots {lots}")
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL if entry_type == "market" else mt5.TRADE_ACTION_PENDING,
             "symbol": mt5_symbol,
@@ -177,7 +224,7 @@ class MT5Executor:
             "price": price,
             "sl": stop_loss,
             "tp": take_profit,
-            "deviation": 10,
+            "deviation": 20,
             "magic": 20260416,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
