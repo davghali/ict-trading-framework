@@ -169,45 +169,43 @@ class MT5Executor:
 
         price = entry_price or (tick.ask if side == "long" else tick.bid)
 
-        # ═══ Validate + auto-fix stops for MT5 ═══
-        # Common errors :
-        # - SL/TP on wrong side of price (signal bug or data mismatch yfinance vs broker)
-        # - SL/TP too close to price (below broker's stop_level / freeze_level)
-        # - SL/TP with wrong decimal precision (broker digits)
+        # ═══ Validate stops for MT5 (reject if bugged, don't auto-fix to absurd values) ═══
         digits = sym_info.digits
         point = sym_info.point
         stops_level = getattr(sym_info, "trade_stops_level", 0) or 0
-        min_stop_distance = stops_level * point
-        # Safety buffer : always keep at least 10 points beyond broker minimum
-        safe_buffer = max(min_stop_distance + 10 * point, 20 * point)
+        min_broker_distance = stops_level * point
 
         current_price = tick.ask if side == "long" else tick.bid
-        orig_sl, orig_tp = stop_loss, take_profit
+
+        # Minimum meaningful distance : greater of broker's stops_level OR 0.2% of price
+        # (prevents ridiculously tight stops on crypto/indices where point is tiny)
+        min_safe_distance = max(min_broker_distance, current_price * 0.002)
+
+        def _bad_stops(reason: str) -> OrderResult:
+            log.error(f"[STOPS-REJECT] {mt5_symbol} {side}: {reason} "
+                        f"(price={current_price} sl={stop_loss} tp={take_profit})")
+            return OrderResult(False, message=f"Invalid stops ({reason}) - signal rejected")
 
         if side == "long":
-            # LONG : SL < price < TP
+            # LONG : SL must be < price, TP must be > price
             if stop_loss >= current_price:
-                stop_loss = current_price - safe_buffer
-                log.warning(f"[STOPS-FIX] LONG SL {orig_sl} >= price {current_price}, adjusted to {stop_loss}")
-            elif current_price - stop_loss < safe_buffer:
-                stop_loss = current_price - safe_buffer
+                return _bad_stops(f"LONG SL {stop_loss} >= price {current_price} (inverted)")
             if take_profit <= current_price:
-                take_profit = current_price + safe_buffer * 2
-                log.warning(f"[STOPS-FIX] LONG TP {orig_tp} <= price {current_price}, adjusted to {take_profit}")
-            elif take_profit - current_price < safe_buffer:
-                take_profit = current_price + safe_buffer
+                return _bad_stops(f"LONG TP {take_profit} <= price {current_price} (inverted)")
+            if current_price - stop_loss < min_safe_distance:
+                return _bad_stops(f"LONG SL distance {current_price - stop_loss:.5f} < min {min_safe_distance:.5f}")
+            if take_profit - current_price < min_safe_distance:
+                return _bad_stops(f"LONG TP distance {take_profit - current_price:.5f} < min {min_safe_distance:.5f}")
         else:
-            # SHORT : TP < price < SL
+            # SHORT : TP must be < price, SL must be > price
             if stop_loss <= current_price:
-                stop_loss = current_price + safe_buffer
-                log.warning(f"[STOPS-FIX] SHORT SL {orig_sl} <= price {current_price}, adjusted to {stop_loss}")
-            elif stop_loss - current_price < safe_buffer:
-                stop_loss = current_price + safe_buffer
+                return _bad_stops(f"SHORT SL {stop_loss} <= price {current_price} (inverted)")
             if take_profit >= current_price:
-                take_profit = current_price - safe_buffer * 2
-                log.warning(f"[STOPS-FIX] SHORT TP {orig_tp} >= price {current_price}, adjusted to {take_profit}")
-            elif current_price - take_profit < safe_buffer:
-                take_profit = current_price - safe_buffer
+                return _bad_stops(f"SHORT TP {take_profit} >= price {current_price} (inverted)")
+            if stop_loss - current_price < min_safe_distance:
+                return _bad_stops(f"SHORT SL distance {stop_loss - current_price:.5f} < min {min_safe_distance:.5f}")
+            if current_price - take_profit < min_safe_distance:
+                return _bad_stops(f"SHORT TP distance {current_price - take_profit:.5f} < min {min_safe_distance:.5f}")
 
         # Round to broker's decimal precision
         price = round(float(price), digits)

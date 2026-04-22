@@ -532,8 +532,10 @@ def run():
                                     atr=getattr(enh, "_atr", 0),
                                 )
                             # Telegram confirmation complete with grade + confluence
+                            # -> Broadcast au canal (membres) ET chat admin via send_broadcast
+                            # (fallback send_text si pas de channel configuré).
                             conf = getattr(enh, "confluence_score", "-")
-                            bot.send_text(
+                            filled_msg = (
                                 f"✅ *AUTO-EXEC FILLED* - Grade {enh.cyborg_grade}\n"
                                 f"{sig.symbol} {sig.side.upper()} "
                                 f"{exec_result.lots}lot\n\n"
@@ -546,8 +548,10 @@ def run():
                                 f"Ticket MT5 : {exec_result.ticket}\n"
                                 f"Le PositionManager gere les exits auto."
                             )
+                            broadcast_fn = getattr(bot, "send_broadcast", bot.send_text)
+                            broadcast_fn(filled_msg)
                         else:
-                            # Exec skipped or failed - info
+                            # Exec skipped or failed - info (admin only, pas membres)
                             reason = exec_result.skipped_reason or exec_result.message
                             bot.send_text(
                                 f"⏭ *SIGNAL {enh.cyborg_grade} SKIP*\n"
@@ -555,12 +559,14 @@ def run():
                                 f"Raison: {reason}"
                             )
                     else:
-                        # Fallback si auto_exec indispo (signal-only)
-                        bot.send_text(
+                        # Fallback si auto_exec indispo (signal-only) -> canal
+                        signal_only_msg = (
                             f"🔔 *SIGNAL {enh.cyborg_grade}* (signal-only)\n"
                             f"{sig.symbol} {sig.side.upper()}\n"
                             f"Entry: {sig.entry:.5f} | SL: {sig.stop_loss:.5f}"
                         )
+                        broadcast_fn = getattr(bot, "send_broadcast", bot.send_text)
+                        broadcast_fn(signal_only_msg)
 
                     log.info(
                         f"[SENT] {enh.cyborg_grade}: {sig.symbol} {sig.ltf} "
