@@ -101,7 +101,8 @@ log = get_logger(__name__)
 
 
 SCAN_INTERVAL_MIN = 15
-MIN_GRADE = "A+"
+MIN_GRADE = "B"  # Accept B/A/A+/S (all non-Skip). Was "A+" - too strict, caused 0 trades.
+                  # ML classifier (threshold 0.45) remains primary quality gate upstream.
 
 
 def _load_settings_dict() -> dict:
