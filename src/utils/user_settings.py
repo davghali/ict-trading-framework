@@ -102,16 +102,17 @@ class UserSettings:
                     f"settings.json parse failed ({e}) — using defaults"
                 )
                 data = {}
-        # Read secrets from .env
+        # Read secrets from .env (BOM-tolerant : PowerShell Out-File -Encoding utf8
+        # writes UTF-8 WITH BOM on Windows PowerShell 5.1)
         if ENV_FILE.exists():
-            for line in ENV_FILE.read_text().splitlines():
+            for line in ENV_FILE.read_text(encoding="utf-8-sig").splitlines():
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, v = line.split("=", 1)
                 k_lower = k.strip().lower()
                 if k_lower in ("discord_webhook_url", "telegram_bot_token", "telegram_chat_id"):
-                    data[k_lower] = v.strip()
+                    data[k_lower] = v.strip().strip('"').strip("'")
         # Fill defaults + filter unknown keys (extra JSON keys cause TypeError otherwise)
         defaults = cls()
         merged = asdict(defaults)
