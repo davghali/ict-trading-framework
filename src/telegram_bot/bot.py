@@ -50,15 +50,29 @@ def _tg_api(token: str, method: str, **params) -> Dict:
 
 class TelegramBot:
 
-    def __init__(self, token: str = None, chat_id: str = None):
+    def __init__(self, token: str = None, chat_id: str = None,
+                 broadcast_chat_id: str = None):
         apply_env()
         self.token = token or os.getenv("TELEGRAM_BOT_TOKEN", "")
+        # Admin chat (private) : commands + alerts + system errors
         self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
+        # Broadcast channel (optional) : trade signals + recaps for members.
+        # If not set, broadcasts fall back to the admin chat_id (solo mode).
+        self.broadcast_chat_id = (
+            broadcast_chat_id
+            or os.getenv("TELEGRAM_BROADCAST_CHANNEL_ID", "")
+            or self.chat_id
+        )
         self._offset = 0
 
     @property
     def enabled(self) -> bool:
         return bool(self.token and self.chat_id)
+
+    @property
+    def has_broadcast(self) -> bool:
+        """True if a separate broadcast channel is configured (vs solo mode)."""
+        return bool(self.broadcast_chat_id and self.broadcast_chat_id != self.chat_id)
 
     # ------------------------------------------------------------------
     def test_connection(self) -> bool:
@@ -71,13 +85,13 @@ class TelegramBot:
         return self.send_text("✅ ICT Cyborg connected") is not None
 
     # ------------------------------------------------------------------
-    def send_text(self, text: str, parse_mode: str = "Markdown",
-                   reply_markup: Optional[Dict] = None) -> Optional[int]:
-        """Envoie un message. Retourne message_id."""
-        if not self.enabled:
+    def _send(self, chat_id: str, text: str, parse_mode: str = "Markdown",
+              reply_markup: Optional[Dict] = None) -> Optional[int]:
+        """Internal : send to any chat_id. Returns message_id or None."""
+        if not self.token or not chat_id:
             return None
         params = {
-            "chat_id": self.chat_id,
+            "chat_id": chat_id,
             "text": text,
             "parse_mode": parse_mode,
         }
@@ -87,6 +101,23 @@ class TelegramBot:
         if r.get("ok"):
             return r["result"]["message_id"]
         return None
+
+    def send_text(self, text: str, parse_mode: str = "Markdown",
+                   reply_markup: Optional[Dict] = None) -> Optional[int]:
+        """Envoie un message au CHAT ADMIN (privé). Pour commandes + alerts système."""
+        if not self.enabled:
+            return None
+        return self._send(self.chat_id, text, parse_mode, reply_markup)
+
+    def send_broadcast(self, text: str, parse_mode: str = "Markdown",
+                        reply_markup: Optional[Dict] = None) -> Optional[int]:
+        """Envoie un message au CHANNEL BROADCAST (publique/privé abonnés).
+        Fallback : chat admin si broadcast non configuré.
+        Utilisé pour : signaux trade, TP/SL hits, recap du soir.
+        """
+        if not self.enabled:
+            return None
+        return self._send(self.broadcast_chat_id, text, parse_mode, reply_markup)
 
     # ------------------------------------------------------------------
     def send_signal_with_buttons(self, signal, extra_info: str = "",
@@ -169,6 +200,8 @@ class TelegramBot:
         if extra_info:
             text += f"\n{extra_info}"
 
+        # Boutons inline : affichés dans le channel broadcast, mais les callbacks
+        # sont filtrés côté _handle_update (seul l'admin chat_id peut déclencher)
         reply_markup = {
             "inline_keyboard": [
                 [
@@ -180,7 +213,8 @@ class TelegramBot:
                 ],
             ],
         }
-        return self.send_text(text, reply_markup=reply_markup)
+        # Broadcast aux membres du channel (ou chat admin si pas de channel)
+        return self.send_broadcast(text, reply_markup=reply_markup)
 
     # ------------------------------------------------------------------
     def _persist_pending(self, sig_id: str, signal) -> None:

@@ -223,7 +223,11 @@ class PositionManager:
                     log.info(f"Position {t} closed (removed from manager)")
                     if self.telegram:
                         try:
-                            self.telegram.send_text(
+                            # Broadcast to channel members (fallback to admin if no channel)
+                            broadcast_fn = getattr(
+                                self.telegram, "send_broadcast", self.telegram.send_text
+                            )
+                            broadcast_fn(
                                 f"🔒 Position fermée : {closed_pos.symbol} "
                                 f"(ticket {t})"
                             )
@@ -317,7 +321,11 @@ class PositionManager:
                 f"{mp.symbol} {mp.side.upper()} ticket {mp.ticket}\n"
                 f"Reason: {order.reason}"
             )
-            self.telegram.send_text(msg)
+            # Broadcast TP/SL hits to channel members (not just admin)
+            broadcast_fn = getattr(
+                self.telegram, "send_broadcast", self.telegram.send_text
+            )
+            broadcast_fn(msg)
         except Exception as e:
             log.debug(f"Telegram notify failed: {e}")
 
