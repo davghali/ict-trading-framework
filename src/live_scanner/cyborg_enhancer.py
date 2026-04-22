@@ -76,27 +76,24 @@ class CyborgEnhancer:
         """
         side = Side.LONG if signal.side == "long" else Side.SHORT
 
-        # 1. Cross-asset check
+        # 1. Cross-asset check (NON-BLOCKING : score utilisé comme boost/neutral, jamais rejet)
         try:
             ca = self.cross_filter.check(signal.symbol, side)
         except Exception as e:
             log.debug(f"Cross-asset check failed: {e}")
             ca = None
-
         if ca is not None and not ca.passed:
-            log.info(f"🚫 {signal.symbol} {signal.side}: cross-asset failed (score {ca.score:.2f})")
-            return None
+            log.info(f"⚠ {signal.symbol} {signal.side}: cross-asset weak (score {ca.score:.2f}) — signal continues")
+            # Note : on n'arrête plus ici. Le score faible pénalisera le grade final si vraiment mauvais.
 
-        # 2. Multi-TF strict
+        # 2. Multi-TF strict (NON-BLOCKING : idem cross-asset)
         try:
             tf_result = self.multi_tf.check(side, df_weekly, df_daily, df_h4, df_h1)
         except Exception as e:
             log.debug(f"Multi-TF check failed: {e}")
             tf_result = None
-
         if tf_result is not None and not tf_result.passed:
-            log.info(f"🚫 {signal.symbol} {signal.side}: multi-TF failed (score {tf_result.score:.2f})")
-            return None
+            log.info(f"⚠ {signal.symbol} {signal.side}: multi-TF weak (score {tf_result.score:.2f}) — signal continues")
 
         # 3. Dynamic exit selon régime
         try:
@@ -131,20 +128,19 @@ class CyborgEnhancer:
         final_prob = base_prob * (0.5 + 0.25 * multi_tf_boost + 0.25 * cross_boost)
         final_prob = min(0.95, final_prob)   # cap à 95%
 
-        # 6. Cyborg grade (thresholds abaissés pour production avec seuils relaxés)
+        # 6. Cyborg grade — plancher "B" garanti si on arrive ici.
+        # Le filtre primaire (ML threshold 0.45) a déjà validé la qualité en amont.
+        # Le filtre aval (MIN_GRADE dans run_cyborg_full_auto.py) fait le gating final.
         if final_prob >= 0.55:
             grade = "S"
         elif final_prob >= 0.45:
             grade = "A+"
         elif final_prob >= 0.35:
             grade = "A"
-        elif final_prob >= 0.25:
-            grade = "B"
         else:
-            grade = "Skip"
-
-        if grade == "Skip":
-            return None
+            grade = "B"   # plancher : si le signal est arrivé ici, il mérite au moins B
+        # Note : plus de "Skip" — le signal passe TOUJOURS s'il arrive à enhance().
+        # Cela évite les rejets silencieux qui bloquaient 100% des trades.
 
         return EnhancedSignal(
             base=signal,

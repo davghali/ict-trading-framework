@@ -416,11 +416,13 @@ def run():
                     ltf = Timeframe(sig.ltf)
                     df_w, df_d, df_h4, df_h1 = _get_htf_dfs(sig.symbol, ltf)
                     if df_w is None or len(df_w) < 10:
+                        log.info(f"[FILTER-HTF] {sig.symbol}: weekly data missing (rows={len(df_w) if df_w is not None else 0})")
                         continue
 
                     try:
                         df_ltf = fe.compute(loader.load(sig.symbol, ltf))
-                    except Exception:
+                    except Exception as fe_e:
+                        log.info(f"[FILTER-FEATURES] {sig.symbol}: feature compute failed ({fe_e})")
                         continue
                     regime_state = regime_detector.detect(df_ltf.tail(500))
                     atr = float(df_ltf["atr_14"].iloc[-1]) if "atr_14" in df_ltf.columns else 0
@@ -434,9 +436,11 @@ def run():
                         regime=regime_state.regime, atr=atr,
                     )
                     if enh is None:
+                        log.info(f"[FILTER-ENHANCE] {sig.symbol} {sig.side}: enhance() returned None (cross/multi_tf/grade filter)")
                         continue
 
                     if GRADE_RANK.get(enh.cyborg_grade, 0) < min_rank:
+                        log.info(f"[FILTER-GRADE] {sig.symbol} {sig.side}: grade={enh.cyborg_grade} below min={MIN_GRADE}")
                         continue
 
                     if confluence_filter:
