@@ -343,38 +343,47 @@ class TelegramBot:
                     "• /stats - stats journal",
                 )
             elif text.startswith("/status"):
-                # Rich status : System + MT5 + positions + ML. Wrapped in try/except
-                # so a single failing subquery doesn't silence the whole response.
+                # Rich status using MT5Executor attributes directly (login, server,
+                # _connected) + optional live balance from MetaTrader5.account_info().
+                # Wrapped in try/except so a single failing subquery stays graceful.
                 lines = ["ICT CYBORG FULL AUTO", "", "System: RUNNING"]
                 auto = getattr(self, "auto_executor", None)
                 if auto is not None:
+                    mt5_exec = auto.mt5
+                    login = getattr(mt5_exec, "login", None)
+                    server = getattr(mt5_exec, "server", "")
+                    connected = getattr(mt5_exec, "_connected", False)
+                    dry_run = getattr(mt5_exec, "dry_run", False)
+
+                    if dry_run:
+                        lines.append("MT5: DRY-RUN mode")
+                    elif connected:
+                        balance_suffix = ""
+                        try:
+                            import MetaTrader5 as _mt5mod
+                            acc = _mt5mod.account_info()
+                            if acc is not None:
+                                balance_suffix = " balance ${0:.2f}".format(acc.balance)
+                        except Exception:
+                            pass
+                        lines.append("MT5: connected (login {0} server {1}{2})".format(
+                            login or "?", server or "?", balance_suffix
+                        ))
+                    else:
+                        lines.append("MT5: disconnected")
+
                     try:
-                        info = auto.mt5.account_info()
-                        if info:
-                            lines.append(
-                                "MT5: connected (login {0}, balance ${1:.2f})".format(
-                                    info.get("login", "?"),
-                                    float(info.get("balance", 0)),
-                                )
-                            )
-                        else:
-                            lines.append("MT5: disconnected")
-                    except Exception as e:
-                        lines.append("MT5: error ({0})".format(e))
-                    try:
-                        positions = auto.mt5.list_positions()
+                        positions = mt5_exec.list_positions()
                         lines.append("Positions open: {0}".format(len(positions)))
                     except Exception:
                         lines.append("Positions open: ?")
-                    try:
-                        paused = getattr(auto, "is_paused", False)
-                        lines.append("Auto-exec: {0}".format("PAUSED" if paused else "LIVE"))
-                    except Exception:
-                        pass
+
+                    paused = getattr(auto, "is_paused", False)
+                    lines.append("Auto-exec: {0}".format("PAUSED" if paused else "LIVE"))
                 else:
                     lines.append("Auto-executor: not configured")
+
                 lines.append("Chat ID: {0}".format(self.chat_id))
-                # Send plain text (no parse_mode) to avoid Markdown/em-dash pitfalls
                 try:
                     self.send_text("\n".join(lines), parse_mode="")
                 except Exception as e:
