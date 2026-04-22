@@ -455,6 +455,21 @@ def run():
                         log.info(f"[SKIP] {sig.symbol}: news window")
                         continue
 
+                    # ═══ Signal actionability check ═══
+                    # ICT signals are level-based : entry is a FVG/OB level where we
+                    # want to short/long IF price returns to it. If current price is
+                    # already far from that level, the trade makes no sense at market
+                    # (TP/SL become inverted vs current price).
+                    # Skip if price has moved more than 1.5% away from the entry level.
+                    dist_pct = abs(sig.current_price - sig.entry) / sig.entry * 100
+                    if dist_pct > 1.5:
+                        log.info(
+                            f"[SKIP-DISTANCE] {sig.symbol} {sig.side}: "
+                            f"current {sig.current_price:.4f} vs entry {sig.entry:.4f} "
+                            f"({dist_pct:.2f}% away — signal not actionable)"
+                        )
+                        continue
+
                     setattr(enh, "_atr", atr)
                     enhanced_signals.append(enh)
                 except Exception as inner_e:
