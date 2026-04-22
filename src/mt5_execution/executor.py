@@ -141,9 +141,31 @@ class MT5Executor:
         else:
             order_type = mt5.ORDER_TYPE_SELL if entry_type == "market" else mt5.ORDER_TYPE_SELL_LIMIT
 
+        # Activer le symbole dans Market Watch si pas déjà fait (FTMO ETHUSD etc.)
+        # Sans ça, symbol_info_tick() retourne None même si le symbole existe chez le broker.
+        sym_info = mt5.symbol_info(mt5_symbol)
+        if sym_info is None:
+            # Essayer variantes communes FTMO (sufixes cashCFD, .x, etc.)
+            for variant in [mt5_symbol + ".", mt5_symbol + "cash", mt5_symbol + ".x"]:
+                sym_info = mt5.symbol_info(variant)
+                if sym_info is not None:
+                    mt5_symbol = variant
+                    log.info(f"Symbol found as variant : {mt5_symbol}")
+                    break
+        if sym_info is None:
+            return OrderResult(False, message=f"Symbol {mt5_symbol} not found in MT5 (check broker contract name)")
+
+        if not sym_info.visible:
+            log.info(f"Activating {mt5_symbol} in Market Watch...")
+            if not mt5.symbol_select(mt5_symbol, True):
+                return OrderResult(False, message=f"Cannot select {mt5_symbol} in Market Watch")
+            # Laisser 200ms pour que MT5 peuple les ticks
+            import time
+            time.sleep(0.2)
+
         tick = mt5.symbol_info_tick(mt5_symbol)
         if tick is None:
-            return OrderResult(False, message=f"No tick for {mt5_symbol}")
+            return OrderResult(False, message=f"No tick for {mt5_symbol} (symbol activated but no live data)")
 
         price = entry_price or (tick.ask if side == "long" else tick.bid)
 
