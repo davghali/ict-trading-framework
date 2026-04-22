@@ -343,7 +343,47 @@ class TelegramBot:
                     "• /stats - stats journal",
                 )
             elif text.startswith("/status"):
-                self.send_text(f"✅ Bot actif — chat_id {self.chat_id}")
+                # Rich status : System + MT5 + positions + ML. Wrapped in try/except
+                # so a single failing subquery doesn't silence the whole response.
+                lines = ["ICT CYBORG FULL AUTO", "", "System: RUNNING"]
+                auto = getattr(self, "auto_executor", None)
+                if auto is not None:
+                    try:
+                        info = auto.mt5.account_info()
+                        if info:
+                            lines.append(
+                                "MT5: connected (login {0}, balance ${1:.2f})".format(
+                                    info.get("login", "?"),
+                                    float(info.get("balance", 0)),
+                                )
+                            )
+                        else:
+                            lines.append("MT5: disconnected")
+                    except Exception as e:
+                        lines.append("MT5: error ({0})".format(e))
+                    try:
+                        positions = auto.mt5.list_positions()
+                        lines.append("Positions open: {0}".format(len(positions)))
+                    except Exception:
+                        lines.append("Positions open: ?")
+                    try:
+                        paused = getattr(auto, "is_paused", False)
+                        lines.append("Auto-exec: {0}".format("PAUSED" if paused else "LIVE"))
+                    except Exception:
+                        pass
+                else:
+                    lines.append("Auto-executor: not configured")
+                lines.append("Chat ID: {0}".format(self.chat_id))
+                # Send plain text (no parse_mode) to avoid Markdown/em-dash pitfalls
+                try:
+                    self.send_text("\n".join(lines), parse_mode="")
+                except Exception as e:
+                    log.warning("/status send failed: {0}".format(e))
+                    try:
+                        self.send_text("Bot actif (chat_id {0})".format(self.chat_id),
+                                         parse_mode="")
+                    except Exception:
+                        pass
             elif text.startswith("/stats"):
                 j = TradeJournal()
                 stats = j.analytics()
