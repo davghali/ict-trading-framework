@@ -113,20 +113,32 @@ class CyborgEnhancer:
         ladder = self._build_ladder(signal, side, atr)
 
         # 5. Final probability (pondérée)
+        # FIX : les scores cross/multi-TF à 0 étaient PÉNALISANTS (final_prob = base*0.5).
+        # Un score de 0 signifie "pas d'info" (filter échoué/absent), pas "mauvais signal".
+        # → traiter les scores < 0.1 comme NEUTRES (0.5) pour ne pas pénaliser le signal.
         base_prob = signal.ml_prob_win or 0.4
-        multi_tf_boost = tf_result.score if tf_result else 0.75
-        cross_boost = ca.score if ca else 0.75
+
+        _mt = tf_result.score if tf_result else 0.75
+        if _mt < 0.1:
+            _mt = 0.5  # neutre : pas d'info
+        multi_tf_boost = _mt
+
+        _ca = ca.score if ca else 0.75
+        if _ca < 0.1:
+            _ca = 0.5  # neutre : pas d'info
+        cross_boost = _ca
+
         final_prob = base_prob * (0.5 + 0.25 * multi_tf_boost + 0.25 * cross_boost)
         final_prob = min(0.95, final_prob)   # cap à 95%
 
-        # 6. Cyborg grade
-        if final_prob >= 0.60:
+        # 6. Cyborg grade (thresholds abaissés pour production avec seuils relaxés)
+        if final_prob >= 0.55:
             grade = "S"
-        elif final_prob >= 0.50:
+        elif final_prob >= 0.45:
             grade = "A+"
-        elif final_prob >= 0.42:
-            grade = "A"
         elif final_prob >= 0.35:
+            grade = "A"
+        elif final_prob >= 0.25:
             grade = "B"
         else:
             grade = "Skip"
