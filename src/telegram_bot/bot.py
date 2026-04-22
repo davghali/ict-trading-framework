@@ -249,16 +249,50 @@ class TelegramBot:
         """
         Long-polling loop : reçoit les callback_query et les traite.
         Cette fonction tourne dans le daemon Telegram bot.
+
+        Robust against HTTP 409 Conflict (stale polling sessions) :
+        - Startup : force deleteWebhook + drop pending updates
+        - Fast-forward offset to skip any backlog
+        - If 409 persists in the loop, force-cleanup every 3 consecutive errors
         """
         log.info("Telegram bot polling started")
+
+        # --- Startup cleanup : libère toute session Telegram fantôme ---
+        _tg_api(self.token, "deleteWebhook", drop_pending_updates="true")
+        time.sleep(2)
+
+        # Fast-forward offset past any pending updates
+        peek = _tg_api(self.token, "getUpdates", offset=-1, timeout=1)
+        if peek.get("ok") and peek.get("result"):
+            self._offset = peek["result"][-1]["update_id"] + 1
+            log.info(f"Telegram offset fast-forwarded to {self._offset}")
+
+        consecutive_409 = 0
         while True:
             try:
                 r = _tg_api(self.token, "getUpdates",
                               offset=self._offset,
                               timeout=25)
                 if not r.get("ok"):
-                    time.sleep(poll_interval)
+                    err = str(r.get("error", ""))
+                    if "409" in err or "Conflict" in err:
+                        consecutive_409 += 1
+                        if consecutive_409 >= 3:
+                            log.warning(
+                                f"Repeated 409 Conflict ({consecutive_409}x) - "
+                                "force deleteWebhook + 30s cooldown"
+                            )
+                            _tg_api(self.token, "deleteWebhook",
+                                     drop_pending_updates="true")
+                            time.sleep(30)
+                            consecutive_409 = 0
+                        else:
+                            time.sleep(poll_interval * 3)
+                    else:
+                        time.sleep(poll_interval)
                     continue
+                # Success : reset counter
+                consecutive_409 = 0
                 for update in r.get("result", []):
                     self._offset = update["update_id"] + 1
                     self._handle_update(update)
